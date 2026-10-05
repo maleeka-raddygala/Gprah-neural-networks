@@ -1,0 +1,83 @@
+% =====================================================================
+%  macros.tex -- notation shared by all lectures
+%  Conventions: vectors bold lowercase (\vz = z), matrices bold
+%  uppercase (\mA = A), sets calligraphic or plain capitals.
+% =====================================================================
+
+% ---------------------------- Number sets / probability ---------------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\indicator}{\mathbb{1}}
+
+% ---------------------------- Vectors (bold lowercase) ----------------
+\newcommand{\vect}[1]{\mathbf{#1}}
+\newcommand{\va}{\mathbf{a}}
+\newcommand{\vb}{\mathbf{b}}
+\newcommand{\ve}{\mathbf{e}}
+\newcommand{\vh}{\mathbf{h}}
+\newcommand{\vm}{\mathbf{m}}
+\newcommand{\vq}{\mathbf{q}}
+\newcommand{\vr}{\mathbf{r}}
+\newcommand{\vs}{\mathbf{s}}
+\newcommand{\vu}{\mathbf{u}}
+\newcommand{\vv}{\mathbf{v}}
+\newcommand{\vw}{\mathbf{w}}
+\newcommand{\vx}{\mathbf{x}}
+\newcommand{\vy}{\mathbf{y}}
+\newcommand{\vz}{\mathbf{z}}
+\newcommand{\vtheta}{\bm{\theta}}
+\newcommand{\vzero}{\mathbf{0}}
+\newcommand{\vone}{\mathbf{1}}
+
+% ---------------------------- Matrices (bold uppercase) ---------------
+\newcommand{\mA}{\mathbf{A}}
+\newcommand{\mB}{\mathbf{B}}
+\newcommand{\mD}{\mathbf{D}}
+\newcommand{\mH}{\mathbf{H}}
+\newcommand{\mI}{\mathbf{I}}
+\newcommand{\mL}{\mathbf{L}}
+\newcommand{\mM}{\mathbf{M}}
+\newcommand{\mP}{\mathbf{P}}
+\newcommand{\mQ}{\mathbf{Q}}
+\newcommand{\mS}{\mathbf{S}}
+\newcommand{\mU}{\mathbf{U}}
+\newcommand{\mW}{\mathbf{W}}
+\newcommand{\mX}{\mathbf{X}}
+\newcommand{\mY}{\mathbf{Y}}
+\newcommand{\mZ}{\mathbf{Z}}
+\newcommand{\mTheta}{\bm{\Theta}}
+
+% ---------------------------- Graph notation --------------------------
+\newcommand{\Nb}{N}                      % neighbourhood: \Nb(v)
+\newcommand{\NR}{N_R}                    % random-walk neighbourhood N_R(u)
+\newcommand{\calV}{\mathcal{V}}
+\newcommand{\calE}{\mathcal{E}}
+\newcommand{\calG}{\mathcal{G}}
+\newcommand{\calR}{\mathcal{R}}
+\newcommand{\calT}{\mathcal{T}}
+\newcommand{\calD}{\mathcal{D}}
+
+% ---------------------------- Operators -------------------------------
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator{\softmax}{softmax}
+\DeclareMathOperator{\ReLU}{ReLU}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\tr}{tr}
+\DeclareMathOperator{\rank}{rank}
+\DeclareMathOperator{\ENC}{ENC}
+\DeclareMathOperator{\DEC}{DEC}
+\DeclareMathOperator{\AGG}{AGG}
+\DeclareMathOperator{\MSG}{MSG}
+\DeclareMathOperator{\CONCAT}{CONCAT}
+\DeclareMathOperator{\similarity}{similarity}
+
+\newcommand{\tp}{^{\top}}                % transpose: \vz_u\tp \vz_v
+\newcommand{\Loss}{\mathcal{L}}
+\newcommand{\given}{\,\middle|\,}        % use inside \left( ... \right)
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\abs}[1]{\left\lvert #1 \right\rvert}
+\newcommand{\bigO}{\mathcal{O}}
+\newcommand{\defeq}{\coloneqq}

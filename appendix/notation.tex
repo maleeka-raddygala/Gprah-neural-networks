@@ -1,0 +1,50 @@
+% =====================================================================
+%  Appendix: notation (extend as new lectures add symbols)
+% =====================================================================
+\chapter{Notation}\label{app:notation}
+
+\textbf{Margin notes} (``Slides 12--15'') = PDF page numbers of the posted deck.
+\textbf{Red ``Careful'' boxes} = slide errata, with the corrected version.
+
+\section{General}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+  \toprule
+  $x$, $\vx$, $\mX$ & scalar, vector (bold lowercase), matrix (bold uppercase) \\
+  $\vx\tp$ & transpose \\
+  $\sigma(\cdot)$ & sigmoid, or a generic non-linearity in a layer (context) \\
+  $\Loss$, $\eta$, $\mTheta$ & loss, learning rate, parameters \\
+  \bottomrule
+\end{tabularx}
+
+\section{Graphs and node embeddings (Lectures~\ref{ch:lec01}--\ref{ch:lec02})}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+  \toprule
+  $G=(V,E)$ & graph: nodes $V$, edges $E$ \\
+  $G=(V,E,R,T)$ & heterogeneous graph: relation types $R$, node types $T$; edges $(v_i,r,v_j)$ \\
+  $\mA$, $\mD$ & adjacency matrix; diagonal degree matrix \\
+  $\vz_u\in\R^d$ & embedding of node $u$; $d$ = embedding dimension \\
+  $\mZ\in\R^{d\times|V|}$ & shallow-encoder embedding matrix (one column per node) \\
+  $\ENC$, $\DEC$ & encoder (node $\to$ $\vz$), decoder ($\vz_u,\vz_v$ $\to$ similarity score) \\
+  $\NR(u)$ & multiset of nodes visited on random walks from $u$ with strategy $R$ \\
+  $k$, $n_i$, $P_V$ & number of negative samples, negatives, their distribution \\
+  $p$, $q$ & node2vec return / in--out parameters \\
+  $\vz_G$ & embedding of a whole graph \\
+  $\mathrm{vol}(G)$, $T$, $b$ & $\sum_{i,j}A_{ij}$; context window size; \# negative samples (DeepWalk as MF) \\
+  \bottomrule
+\end{tabularx}
+
+\section{Graph neural networks (Lectures~\ref{ch:lec03}--\ref{ch:lec04})}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+  \toprule
+  $\mX$, $\vx_v$ & node-feature matrix; features of node $v$ \\
+  $\mP$ & permutation matrix (node re-ordering) \\
+  $\vh_v^{(k)}$, $\mH^{(k)}$ & embedding of $v$ after layer $k$ ($\vh_v^{(0)}=\vx_v$); all of them stacked as rows \\
+  $\vz_v=\vh_v^{(K)}$ & final embedding after $K$ layers \\
+  $\mW_k$, $\mB_k$ & GCN weights for neighbour aggregate / self embedding (Lec.~3) \\
+  $\vm_u^{(l)}$ & message from $u$ in layer $l$; $\MSG^{(l)}$, $\AGG^{(l)}$ message / aggregation functions \\
+  $e_{vu}$, $\alpha_{vu}$, $a$ & GAT attention coefficient, normalised attention weight, attention mechanism \\
+  $\bm{\mu}_j$, $\bm{\sigma}_j^2$, $\bm{\gamma}$, $\bm{\beta}$ & BatchNorm batch mean / variance and learnable scale / shift \\
+  \bottomrule
+\end{tabularx}
+
+% Add a section here for each new lecture that introduces notation.

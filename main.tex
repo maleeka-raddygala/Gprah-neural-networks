@@ -1,0 +1,43 @@
+% =====================================================================
+%  CS224W: Machine Learning with Graphs -- Lecture Notes (Fall 2026)
+%  Main file. Compile with pdfLaTeX (Overleaf default).
+%
+%  To add a lecture:
+%    1. Copy lectures/_template.tex to lectures/lecNN-short-name.tex
+%    2. Add  \include{lectures/lecNN-short-name}  below, in order.
+%  To compile only some lectures (faster on Overleaf), uncomment
+%  \includeonly and list the files you want.
+% =====================================================================
+\documentclass[11pt,oneside]{report}
+
+\input{preamble}
+\input{macros}
+
+% \includeonly{lectures/lec04-gnn2}
+
+\title{%
+  \vspace*{-2cm}
+  {\Huge\sffamily\bfseries CS224W}\\[6pt]
+  {\LARGE\sffamily Machine Learning with Graphs}\\[14pt]
+  {\large Lecture Notes}}
+\author{Maleeka Raddygala}
+\date{Stanford University \textbullet{} Fall 2026}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\tableofcontents
+
+% ----------------------------- Lectures ------------------------------
+\include{lectures/lec01-intro}
+\include{lectures/lec02-node-embeddings}
+\include{lectures/lec03-gnn1}
+\include{lectures/lec04-gnn2}
+% \include{lectures/lec05-...}
+
+% ----------------------------- Appendix ------------------------------
+\appendix
+\include{appendix/notation}
+
+\end{document}

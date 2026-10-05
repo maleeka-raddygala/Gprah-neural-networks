@@ -1,0 +1,1136 @@
+\lecture{3}{Graph Neural Networks I}{Tuesday, September 29, 2026}\label{ch:lec03}
+
+% ---------------------------------------------------------------------
+%  Local TikZ styles (prefix lec03) and a macro for the 6-node example
+%  graph of the slides (edges A-B, A-C, A-D, B-C, C-E, C-F, E-F).
+%  Node colour is tied to the POSITION, so it follows a node when it is
+%  relabelled; #3..#8 are the labels of the six positions.
+% ---------------------------------------------------------------------
+\tikzset{
+  lec03cA/.style={fill=Tan!80!Brown},
+  lec03cB/.style={fill=BrickRed!65},
+  lec03cC/.style={fill=ForestGreen!55},
+  lec03cD/.style={fill=RoyalBlue!50},
+  lec03cE/.style={fill=Orchid!65},
+  lec03cF/.style={fill=WildStrawberry!50},
+  lec03s/.style={circle, draw=black!60, minimum size=3.6mm, inner sep=0pt,
+                 font=\tiny\sffamily},
+  lec03m/.style={circle, draw=black!60, thick, minimum size=4.8mm,
+                 inner sep=0pt, font=\scriptsize\sffamily},
+  lec03bxl/.style={draw=black!60, fill=black!12, minimum size=2.6mm,
+                   inner sep=0pt},
+  lec03bxd/.style={draw=black!70, fill=black!60, minimum size=1.8mm,
+                   inner sep=0pt},
+  lec03msg/.style={black!45, -{Stealth[length=1.1mm]}},
+}
+\providecommand{\lecIIIsixgraph}[8]{%
+  \node[#1, lec03cA] (#2a) at (0.9,1.25) {#3};
+  \node[#1, lec03cB] (#2b) at (2.5,1.9)  {#4};
+  \node[#1, lec03cC] (#2c) at (2.9,1.0)  {#5};
+  \node[#1, lec03cD] (#2d) at (0.0,0.0)  {#6};
+  \node[#1, lec03cE] (#2e) at (1.9,0.1)  {#7};
+  \node[#1, lec03cF] (#2f) at (3.6,0.35) {#8};
+  \draw[edge] (#2a)--(#2b) (#2a)--(#2c) (#2a)--(#2d) (#2b)--(#2c)
+              (#2c)--(#2e) (#2c)--(#2f) (#2e)--(#2f);
+}
+
+\textbf{Outline.} Recap $\to$ deep learning for graphs (permutation
+invariance / equivariance) $\to$ graph convolutional networks (GCN) $\to$ GNNs
+subsume CNNs (and transformers) $\to$ background: basics of deep learning (the
+deck's appendix, slides 73--88, kept at the end in deck order).
+
+% =====================================================================
+\section{From shallow to deep graph encoders}\label{sec:lec03-intro}
+
+\subsection{Recap: node embeddings and shallow encoders}\label{sec:lec03-recap}
+\slides{3--6}
+
+\begin{itemize}
+  \item \textbf{Intuition:} map nodes to $d$-dimensional embeddings such that
+    similar nodes in the graph are embedded close together:
+    $f(\text{input graph}) = $ 2-D node embeddings (figure: disease network;
+    related diseases cluster, e.g.\ around thyroid disease, viral meningitis,
+    pancreatitis, uterine polyp). \textbf{How to \emph{learn} the mapping $f$?}
+  \item \textbf{Goal:} encode nodes ($\ENC(u)\to\vz_u$, $\ENC(v)\to\vz_v$ in the
+    $d$-dim embedding space) so that
+\end{itemize}
+\begin{equation}\label{eq:lec03-recap}
+  \similarity(u,v) \approx \vz_v\tp\vz_u
+  \qquad\text{(both $\similarity$ and $\ENC$: ``need to define!'')}
+\end{equation}
+\begin{itemize}
+  \item \term{Shallow encoding}: the encoder is just an \textbf{embedding
+    lookup}; embedding matrix $\mZ$ with one column per node (column =
+    embedding vector of that node), number of rows = dimension/size of the
+    embeddings.
+  \item \textbf{Limitations} of shallow embedding methods:
+    \begin{itemize}
+      \item \textbf{$\bigO(|V|d)$ parameters are needed}: no sharing of
+        parameters between nodes; every node has its own unique embedding.
+      \item \textbf{Inherently ``transductive''}: cannot generate embeddings for
+        nodes not seen during training.
+      \item \textbf{Do not incorporate node features}: nodes in many graphs have
+        features that we can and should leverage.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Deep graph encoders; why graphs are hard}\label{sec:lec03-deep}
+\slides{7--13}
+
+\begin{itemize}
+  \item \textbf{Today:} deep learning methods based on \term{graph neural
+    networks} (GNNs):
+\end{itemize}
+\begin{equation}\label{eq:lec03-enc}
+  \ENC(v) = \text{multiple layers of non-linear transformations based on graph structure}
+\end{equation}
+\begin{itemize}
+  \item \textbf{Note:} all these deep encoders can be \textbf{combined with the
+    node similarity functions} defined in Lecture~2.
+  \item Architecture (slide 8): graph convolutions $\to$ activation function
+    $\to$ regularisation (e.g.\ dropout) $\to$ graph convolutions $\to\cdots$
+    (each layer: one vector per node). \textbf{Output:} node embeddings; we can
+    also embed subgraphs and graphs.
+  \item \textbf{Tasks} we will be able to solve: \textbf{node classification}
+    (predict the type of a given node); \textbf{link prediction} (predict
+    whether two nodes are linked); \textbf{community detection} (identify
+    densely linked clusters of nodes); \textbf{network similarity} (how
+    similar two (sub)networks are).
+  \item \textbf{Modern ML toolbox:} images = grids (CNN layers: patterns of
+    local contrast $\to$ face features $\to$ faces); text/speech = sequences
+    (chain of nodes; RNN cells). \textbf{Modern deep learning toolbox is designed for
+    simple sequences \& grids.}
+  \item \textbf{Why is it hard? Networks are far more complex:} arbitrary size
+    and complex topological structure (i.e.\ no spatial locality like grids);
+    no fixed node ordering or reference point; often dynamic and have
+    multimodal features.
+  \item Outline (slide 12): deep learning for graphs; graph convolutional
+    networks; GNNs subsume CNNs.
+  \item \textbf{Background: basics of deep learning} (slide 13; details in
+    \cref{sec:lec03-dl}): loss function $\Loss$,
+\end{itemize}
+\begin{equation}\label{eq:lec03-dl-recipe}
+  \min_{\Theta}\ \Loss\bigl(\vy, f_\Theta(\vx)\bigr)
+\end{equation}
+\begin{itemize}
+  \item $f$ can be a simple linear layer, an MLP, or other neural networks
+    (e.g.\ a GNN later). Sample a minibatch of input data $\vx$.
+    \textbf{Forward propagation:} compute $\Loss$ given $\vx$.
+    \textbf{Back-propagation:} obtain the gradient $\nabla_\Theta\Loss$ using a
+    chain rule. Use \textbf{stochastic gradient descent (SGD)} to optimise
+    $\Loss$ for weights $\Theta$ over many iterations.
+\end{itemize}
+
+% =====================================================================
+\section{Deep learning for graphs}\label{sec:lec03-dlg}
+\slides{14--34}
+
+\textbf{Content} (slide 15): \textbf{local network neighbourhoods} (describe
+aggregation strategies; define computation graphs) and \textbf{stacking
+multiple layers} (describe the model, parameters, training; how to fit the
+model; simple example for unsupervised and supervised training).
+
+\subsection{Setup and a naive approach}\label{sec:lec03-setup}
+\slides{16--17}
+
+\begin{itemize}
+  \item Graph $G$: $V$ = \textbf{vertex set}; $\mA$ = \textbf{adjacency
+    matrix} (assume binary); $\mX\in\R^{|V|\times m}$ = matrix of
+    \textbf{node features}; $v$ = a node in $V$; $\Nb(v)$ = the set of
+    neighbours of $v$.
+  \item \textbf{Node features:} social networks: user profile, user image;
+    biological networks: gene expression profiles, gene functional information.
+    \textbf{No node features} in the dataset: indicator vectors (one-hot
+    encoding of a node), or a vector of constant 1: $[1,1,\dots,1]$.
+  \item \textbf{Naive approach:} join adjacency matrix and features $[\mA,\mX]$
+    and feed them (one row per node) into a deep neural net
+    (\cref{fig:lec03-naive}).
+  \item \textbf{Issues:} $\bigO(|V|)$ parameters; not applicable to graphs of
+    different sizes; sensitive to node ordering.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85, transform shape]
+    \begin{scope}[every node/.style={vertex, minimum size=5mm, font=\scriptsize}]
+      \node (A) at (0,1.1) {A}; \node (B) at (1.2,1.1) {B};
+      \node (C) at (0,0) {C};   \node (D) at (1.2,0) {D};
+      \node (E) at (2.0,0.55) {E};
+    \end{scope}
+    \draw[edge] (A)--(B) (A)--(C) (A)--(D) (B)--(D) (B)--(E) (C)--(D) (D)--(E);
+    \matrix (m) at (4.7,0.55) [matrix of math nodes,
+        nodes={minimum width=4.6mm, minimum height=3.9mm, inner sep=0pt, font=\scriptsize}] {
+        & A & B & C & D & E & f_1 & f_2 \\
+      A & 0 & 1 & 1 & 1 & 0 & 1 & 0 \\
+      B & 1 & 0 & 0 & 1 & 1 & 0 & 0 \\
+      C & 1 & 0 & 0 & 1 & 0 & 0 & 1 \\
+      D & 1 & 1 & 1 & 0 & 1 & 1 & 1 \\
+      E & 0 & 1 & 0 & 1 & 0 & 1 & 0 \\
+    };
+    \draw[black!50] (m-1-6.north east) -- (m-6-6.south east);
+    \draw[SkyBlue!90!black, thick, rounded corners=1pt] (m-3-2.north west) rectangle (m-3-8.south east);
+    \node[font=\scriptsize, above] at (m-1-4.north) {$\mA$};
+    \node[font=\scriptsize, above] at ($(m-1-7.north)!0.5!(m-1-8.north)$) {$\mX$ (feat.)};
+    \begin{scope}[shift={(8.0,0)}, every node/.style={circle, draw, minimum size=2.6mm, inner sep=0pt}]
+      \foreach \i in {0,...,6} \node (p\i) at (0,1.35-0.27*\i) {};
+      \foreach \i in {0,...,5} \node (q\i) at (0.9,1.3-0.27*\i) {};
+      \foreach \i in {0,...,5} \node (r\i) at (1.8,1.3-0.27*\i) {};
+      \foreach \i in {0,...,2} \node (s\i) at (2.7,0.85-0.27*\i) {};
+      \foreach \i in {0,...,6} \foreach \j in {0,...,5} \draw[black!25] (p\i) -- (q\j);
+      \foreach \i in {0,...,5} \foreach \j in {0,...,5} \draw[black!25] (q\i) -- (r\j);
+      \foreach \i in {0,...,5} \foreach \j in {0,...,2} \draw[black!25] (r\i) -- (s\j);
+    \end{scope}
+    \draw[SkyBlue!90!black, thick, rounded corners=1pt] (7.82,-0.43) rectangle (8.18,1.53);
+    \draw[arrow] ([xshift=4pt]m-3-8.east) -- (7.72,0.55 |- m-3-8.east);
+    \node[font=\Large\bfseries] at (11.2,0.55) {?};
+  \end{tikzpicture}
+  \caption{Naive approach (slides 17, 33): row $v$ of $[\mA,\mX]$ (here $B$)
+  is the input layer of an MLP.}
+  \label{fig:lec03-naive}
+\end{figure}
+
+\subsection{Convolutions? Permutation invariance}\label{sec:lec03-perm-inv}
+\slides{18--25}
+
+\begin{itemize}
+  \item \textbf{Idea: convolutional networks.} CNN on an image: a $3\times3$
+    window slides over the pixel grid; input $\to$ convolutions $\to$ feature
+    maps $\to$ subsampling $\to$ convolutions $\to$ subsampling $\to$ fully
+    connected $\to$ output. \textbf{Goal:} generalise convolutions beyond
+    simple lattices; leverage node features/attributes (e.g.\ text, images).
+  \item \textbf{Real-world graphs:} there is \textbf{no fixed notion of
+    locality or sliding window} on the graph; graphs are \textbf{permutation
+    invariant}.
+  \item Imagine we want to \textbf{embed an entire graph}.
+    \textbf{Observation: a graph does not have a canonical ordering of its
+    nodes}; we can have many different node orderings of the same graph.
+    \textbf{What we want:} if we learn an embedding function over a graph,
+    we should get the same result (the same embedding) regardless of how the
+    nodes are numbered.
+  \item Running example (\cref{fig:lec03-orders}): order~1 $(\mA_1,\mX_1)$ and
+    order~2 $(\mA_2,\mX_2)$ of the same graph (order~2 renames $A,\dots,F$ of
+    order~1 to $E,F,D,C,B,A$). \textbf{Learned graph representation should be
+    the same for order~1 and order~2.}
+  \item Formally: learn $f$ that maps a graph $G=(\mA,\mX)$ to a vector in
+    $\R^d$ (a $d$-dim embedding); then we want
+    $f(\mA_1,\mX_1) = f(\mA_2,\mX_2)$. If $f(\mA_i,\mX_i)=f(\mA_j,\mX_j)$ for
+    any orderings $i$ and $j$, $f$ is a \textbf{permutation invariant
+    function} (a graph with $|V|$ nodes has $|V|!$ different orderings).
+\end{itemize}
+
+\begin{definition}[Permutation invariance]\label{def:lec03-perm-inv}
+  A graph function $f:\R^{|V|\times|V|}\times\R^{|V|\times m}\to\R^{d}$ is
+  \term{permutation invariant} if
+  \begin{equation}\label{eq:lec03-perm-inv}
+    f(\mA,\mX) = f(\mP\mA\mP\tp,\mP\mX)\qquad\text{for any permutation } \mP .
+  \end{equation}
+  $m$: each node has an $m$-dim feature vector; $d$: output embedding
+  dimensionality of the graph $G=(\mA,\mX)$; permutation $\mP$: a shuffle of
+  the node order, e.g.\ $(A,B,C)\to(B,C,A)$.
+\end{definition}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.8, transform shape, lbl/.style={font=\scriptsize\sffamily, inner sep=1pt}]
+    % ================= ORDER 1 =================
+    \node[font=\small\bfseries, cautionred, anchor=west] at (-0.5,2.55) {Order 1: $(\mA_1,\mX_1)$};
+    \lecIIIsixgraph{vertex}{o}{A}{B}{C}{D}{E}{F}
+    \node[font=\scriptsize] at (5.15,2.25) {features $\mX_1$};
+    \foreach \l/\c [count=\r] in {A/A,B/B,C/C,D/D,E/E,F/F} {
+      \node[lbl] at (4.35,1.95-0.32*\r+0.16) {\l};
+      \fill[lec03c\c, rounded corners=1.2mm] (4.55,1.95-0.32*\r+0.04) rectangle (5.75,1.95-0.32*\r+0.28);
+    }
+    \begin{scope}[shift={(6.5,0.03)}]
+      \foreach \r/\c in {1/2,1/3,1/4,2/1,2/3,3/1,3/2,3/5,3/6,4/1,5/3,5/6,6/3,6/5}
+        \fill[SkyBlue!80] ({0.32*(\c-1)},{1.92-0.32*\r}) rectangle ++(0.32,0.32);
+      \draw[black!45] (0,0) grid[step=0.32] (1.92,1.92);
+      \foreach \l [count=\i] in {A,B,C,D,E,F} {
+        \node[lbl] at ({0.32*\i-0.16},2.05) {\l};
+        \node[lbl] at (-0.14,{1.92-0.32*\i+0.16}) {\l};
+      }
+      \node[font=\scriptsize] at (0.96,2.4) {adjacency $\mA_1$};
+    \end{scope}
+    \begin{scope}[shift={(9.3,0.03)}]
+      \foreach \l/\c [count=\r] in {A/A,B/B,C/C,D/D,E/E,F/F} {
+        \node[lbl] at (-0.16,{1.92-0.32*\r+0.16}) {\l};
+        \fill[lec03c\c] (0,{1.92-0.32*\r}) rectangle ++(0.64,0.32);
+      }
+      \draw[black!45] (0,0) grid[step=0.32] (0.64,1.92);
+      \draw[very thick, Goldenrod!70!black] (-0.05,1.55) rectangle (0.69,1.97);
+      \draw[thick, dashed] (-0.05,0.59) rectangle (0.69,1.01);
+      \node[font=\scriptsize] at (0.32,2.4) {$f(\mA_1,\mX_1)$};
+    \end{scope}
+    % ================= ORDER 2 =================
+    \begin{scope}[shift={(0,-3.3)}]
+      \node[font=\small\bfseries, asideteal, anchor=west] at (-0.5,2.55) {Order 2: $(\mA_2,\mX_2)$};
+      \lecIIIsixgraph{vertex}{t}{E}{F}{D}{C}{B}{A}
+      \node[font=\scriptsize] at (5.15,2.25) {features $\mX_2$};
+      \foreach \l/\c [count=\r] in {A/F,B/E,C/D,D/C,E/A,F/B} {
+        \node[lbl] at (4.35,1.95-0.32*\r+0.16) {\l};
+        \fill[lec03c\c, rounded corners=1.2mm] (4.55,1.95-0.32*\r+0.04) rectangle (5.75,1.95-0.32*\r+0.28);
+      }
+      \begin{scope}[shift={(6.5,0.03)}]
+        \foreach \r/\c in {1/2,1/4,2/1,2/4,3/5,4/1,4/2,4/5,4/6,5/3,5/4,5/6,6/4,6/5}
+          \fill[SkyBlue!80] ({0.32*(\c-1)},{1.92-0.32*\r}) rectangle ++(0.32,0.32);
+        \draw[black!45] (0,0) grid[step=0.32] (1.92,1.92);
+        \foreach \l [count=\i] in {A,B,C,D,E,F} {
+          \node[lbl] at ({0.32*\i-0.16},2.05) {\l};
+          \node[lbl] at (-0.14,{1.92-0.32*\i+0.16}) {\l};
+        }
+        \node[font=\scriptsize] at (0.96,2.4) {adjacency $\mA_2$};
+      \end{scope}
+      \begin{scope}[shift={(9.3,0.03)}]
+        \foreach \l/\c [count=\r] in {A/F,B/E,C/D,D/C,E/A,F/B} {
+          \node[lbl] at (-0.16,{1.92-0.32*\r+0.16}) {\l};
+          \fill[lec03c\c] (0,{1.92-0.32*\r}) rectangle ++(0.64,0.32);
+        }
+        \draw[black!45] (0,0) grid[step=0.32] (0.64,1.92);
+        \draw[very thick, Goldenrod!70!black] (-0.05,0.27) rectangle (0.69,0.69);
+        \draw[thick, dashed] (-0.05,0.91) rectangle (0.69,1.33);
+        \node[font=\scriptsize] at (0.32,2.4) {$f(\mA_2,\mX_2)$};
+      \end{scope}
+    \end{scope}
+  \end{tikzpicture}
+  \caption{One graph, two node orderings (slides 21--28, 45--46). Colours =
+  physical nodes; blue cells of $\mA_i$ are 1s. Right: node embeddings
+  ($=\mH_1,\mH_2$ on slide 45). Brown node: row $A$ vs.\ row $E$ (gold box);
+  green node: row $C$ vs.\ row $D$; blue target node of slide 45: row $D$ vs.\
+  row $C$ (dashed).}
+  \label{fig:lec03-orders}
+\end{figure}
+
+\subsection{Permutation equivariance}\label{sec:lec03-perm-eqv}
+\slides{26--30}
+
+\begin{itemize}
+  \item \textbf{For node representation:} learn $f$ that maps the nodes of $G$
+    to a matrix in $\R^{|V|\times d}$ (each node in $V$ is mapped to a $d$-dim
+    embedding).
+  \item \Cref{fig:lec03-orders}, right: the representation vector of the brown
+    node is row $A$ of $f(\mA_1,\mX_1)$ and row $E$ of $f(\mA_2,\mX_2)$; the green
+    node is row $C$ resp.\ row $D$. \textbf{For two orderings, the vector of
+    the node at the same position in the graph is the same!}
+  \item If the output vector of a node at the same position in the graph
+    remains unchanged for any ordering, $f$ is \textbf{permutation
+    equivariant}.
+\end{itemize}
+
+\begin{definition}[Permutation equivariance]\label{def:lec03-perm-eqv}
+  A node function $f:\R^{|V|\times|V|}\times\R^{|V|\times m}\to\R^{|V|\times d}$
+  ($f$ maps each node in $V$ to a $d$-dim embedding) is \term{permutation
+  equivariant} if
+  \begin{equation}\label{eq:lec03-perm-eqv}
+    \mP f(\mA,\mX) = f(\mP\mA\mP\tp,\mP\mX)\qquad\text{for any permutation } \mP .
+  \end{equation}
+\end{definition}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{@{}ll>{\raggedright\arraybackslash}X@{}}
+    \toprule
+    & Condition & Meaning \\
+    \midrule
+    Perm.-invariant & $f(\mA,\mX)=f(\mP\mA\mP\tp,\mP\mX)$ &
+      permute the input, the output stays the same (graph $\to$ vector) \\
+    Perm.-equivariant & $\mP f(\mA,\mX)=f(\mP\mA\mP\tp,\mP\mX)$ &
+      permute the input, output also permutes accordingly (graph $\to$ matrix) \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Summary: invariance and equivariance (slide 30).}
+  \label{tab:lec03-inv-eqv}
+\end{table}
+
+\textbf{Examples} (slide 30):
+\begin{align}
+  f(\mA,\mX)&=\vone\tp\mX: &&\text{invariant:}\quad f(\mP\mA\mP\tp,\mP\mX)=\vone\tp\mP\mX=\vone\tp\mX=f(\mA,\mX)\notag\\
+  f(\mA,\mX)&=\mX: &&\text{equivariant:}\quad f(\mP\mA\mP\tp,\mP\mX)=\mP\mX=\mP f(\mA,\mX)\label{eq:lec03-inv-eqv-ex}\\
+  f(\mA,\mX)&=\mA\mX: &&\text{equivariant:}\quad f(\mP\mA\mP\tp,\mP\mX)=\mP\mA\mP\tp\mP\mX=\mP\mA\mX=\mP f(\mA,\mX)\notag
+\end{align}
+
+\subsection{GNN overview}\label{sec:lec03-overview}
+\slides{31--34}
+
+\begin{keyidea}[Bronstein, ICLR 2021 keynote]
+  Graph neural networks consist of multiple permutation equivariant /
+  invariant functions: permutation-equivariant layer $\to$
+  permutation-equivariant layer $\to\cdots\to$ permutation-invariant layer
+  (one output vector for the whole graph).
+\end{keyidea}
+\begin{itemize}
+  \item Are other neural network architectures, e.g.\ MLPs, permutation
+    invariant / equivariant? \textbf{No.} Switching the order of the input
+    leads to different outputs: one MLP gives $-0.6$ for input
+    $(-0.53,\,0.15,\,-0.22)$, $-0.8$ for $(0.15,\,-0.53,\,-0.22)$ and $0.02$ for
+    $(-0.53,\,-0.22,\,0.15)$.
+  \item This explains why \textbf{the naive MLP approach fails for graphs}
+    (\cref{fig:lec03-naive}).
+\end{itemize}
+\begin{keyidea}[Next]
+  Design graph neural networks that are permutation invariant / equivariant
+  by \textbf{passing and aggregating information from neighbours}.
+\end{keyidea}
+
+% =====================================================================
+\section{Graph convolutional networks}\label{sec:lec03-gcn}
+
+\subsection{Computation graphs and neighbourhood aggregation}\label{sec:lec03-compgraph}
+\slides{35--42}
+
+\begin{itemize}
+  \item \textbf{GCN} [Kipf \& Welling, ICLR 2017]. \textbf{Idea:} a node's
+    neighbourhood defines a \term{computation graph}: (1) determine the node
+    computation graph ($k=1$ and $k=2$ hops around node $i$); (2) propagate and
+    transform information (aggregator$_2$: 2-hop $\to$ 1-hop neighbours,
+    aggregator$_1$: 1-hop neighbours $\to i$). \textbf{Learn how to propagate
+    information across the graph to compute node features.}
+  \item \textbf{Key idea:} generate node embeddings based on \textbf{local
+    network neighbourhoods} (\cref{fig:lec03-compgraph}, target node $A$).
+  \item \textbf{Intuition:} nodes aggregate information from their neighbours
+    using \textbf{neural networks} (every box is a neural network); network
+    neighbourhood defines a computation graph: \textbf{every node defines a
+    computation graph based on its neighbourhood} (\cref{fig:lec03-six-trees}).
+  \item \textbf{Deep model: many layers.} Model can be of arbitrary depth:
+    nodes have embeddings at each layer; the layer-0 embedding of node $v$ is
+    its input feature $\vx_v$; the layer-$k$ embedding gets information from
+    nodes that are $k$ hops away.
+  \item \textbf{Neighbourhood aggregation:} key distinctions are in how
+    different approaches aggregate information across the layers (\emph{what
+    is in the box?}).
+  \item \textbf{Basic approach:} (1) average messages from neighbours, (2)
+    apply a neural network.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.8, transform shape, lv/.style={font=\small\sffamily}]
+    \begin{scope}[shift={(-5.6,-0.9)}, scale=0.85]
+      \lecIIIsixgraph{lec03m}{ig}{A}{B}{C}{D}{E}{F}
+      \node[font=\scriptsize\sffamily] at (1.8,-0.6) {INPUT GRAPH};
+      \draw[arrow] (0.9,2.45) node[above, font=\scriptsize\sffamily] {target node} -- (0.9,1.65);
+    \end{scope}
+    \node[lec03m, lec03cA] (zA) at (0,0) {A};
+    \node[draw, fill=black!10, minimum size=10mm] (box) at (1.4,0) {};
+    \node[lec03m, lec03cB] (B) at (3.4,1.72) {B};
+    \node[lec03m, lec03cC] (C) at (3.4,0) {C};
+    \node[lec03m, lec03cD] (D) at (3.4,-1.65) {D};
+    \node[lec03bxd, minimum size=4mm] (bB) at (4.4,1.72) {};
+    \node[lec03bxd, minimum size=4mm] (bC) at (4.4,0) {};
+    \node[lec03bxd, minimum size=4mm] (bD) at (4.4,-1.65) {};
+    \foreach \n/\c/\y in {bA/A/2.0, bC2/C/1.44, cA/A/0.84, cB/B/0.28, cE/E/-0.28, cF/F/-0.84, dA/A/-1.65}
+      \node[lec03m, lec03c\c] (\n) at (5.9,\y) {\c};
+    \draw[arrow] (box) -- (zA);
+    \draw[arrow, dotted] (B) -- (box);
+    \draw[arrow, dotted] (C) -- (box);
+    \draw[arrow, dotted] (D) -- (box);
+    \draw[arrow] (bB) -- (B); \draw[arrow] (bC) -- (C); \draw[arrow] (bD) -- (D);
+    \foreach \n in {bA,bC2} \draw[arrow, dotted, black!60] (\n) -- (bB);
+    \foreach \n in {cA,cB,cE,cF} \draw[arrow, dotted, black!60] (\n) -- (bC);
+    \draw[arrow, dotted, black!60] (dA) -- (bD);
+    \foreach \n/\c in {bA/A, bC2/C, cA/A, cB/B, cE/E, cF/F, dA/A}
+      \node[right=1pt of \n, font=\small] {$\vx_{\c}$};
+    \node[lv] at (1.4,0.9) {Layer-2};
+    \node[lv] at (3.4,2.3) {Layer-1};
+    \node[lv] at (6.15,2.55) {Layer-0};
+  \end{tikzpicture}
+  \caption{Computation graph of target node $A$ (slides 37--42): boxes = neural
+  networks (``what is in the box?''); layer-0 leaves carry $\vx_u$.}
+  \label{fig:lec03-compgraph}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.8, transform shape]
+    \node[lec03s, lec03cA] (tsixAr) at (1.584,0.000) {A};
+    \node[lec03bxl] (tsixArb) at (1.584,-0.475) {};
+    \draw[lec03msg] (tsixArb) -- (tsixAr);
+    \node[lec03s, lec03cB] (tsixAc0) at (0.215,-0.950) {B};
+    \node[lec03bxd] (tsixAc0b) at (0.215,-1.425) {};
+    \draw[lec03msg] (tsixAc0) -- (tsixArb);
+    \draw[lec03msg] (tsixAc0b) -- (tsixAc0);
+    \node[lec03s, lec03cA] (tsixAc0l0) at (0.000,-1.900) {A};
+    \draw[lec03msg] (tsixAc0l0) -- (tsixAc0b);
+    \node[lec03s, lec03cC] (tsixAc0l1) at (0.430,-1.900) {C};
+    \draw[lec03msg] (tsixAc0l1) -- (tsixAc0b);
+    \node[lec03s, lec03cC] (tsixAc1) at (1.655,-0.950) {C};
+    \node[lec03bxd] (tsixAc1b) at (1.655,-1.425) {};
+    \draw[lec03msg] (tsixAc1) -- (tsixArb);
+    \draw[lec03msg] (tsixAc1b) -- (tsixAc1);
+    \node[lec03s, lec03cA] (tsixAc1l0) at (1.010,-1.900) {A};
+    \draw[lec03msg] (tsixAc1l0) -- (tsixAc1b);
+    \node[lec03s, lec03cB] (tsixAc1l1) at (1.440,-1.900) {B};
+    \draw[lec03msg] (tsixAc1l1) -- (tsixAc1b);
+    \node[lec03s, lec03cE] (tsixAc1l2) at (1.870,-1.900) {E};
+    \draw[lec03msg] (tsixAc1l2) -- (tsixAc1b);
+    \node[lec03s, lec03cF] (tsixAc1l3) at (2.300,-1.900) {F};
+    \draw[lec03msg] (tsixAc1l3) -- (tsixAc1b);
+    \node[lec03s, lec03cD] (tsixAc2) at (2.881,-0.950) {D};
+    \node[lec03bxd] (tsixAc2b) at (2.881,-1.425) {};
+    \draw[lec03msg] (tsixAc2) -- (tsixArb);
+    \draw[lec03msg] (tsixAc2b) -- (tsixAc2);
+    \node[lec03s, lec03cA] (tsixAc2l0) at (2.881,-1.900) {A};
+    \draw[lec03msg] (tsixAc2l0) -- (tsixAc2b);
+    \node[lec03s, lec03cB] (tsixBr) at (5.039,0.000) {B};
+    \node[lec03bxl] (tsixBrb) at (5.039,-0.475) {};
+    \draw[lec03msg] (tsixBrb) -- (tsixBr);
+    \node[lec03s, lec03cA] (tsixBc0) at (4.211,-0.950) {A};
+    \node[lec03bxd] (tsixBc0b) at (4.211,-1.425) {};
+    \draw[lec03msg] (tsixBc0) -- (tsixBrb);
+    \draw[lec03msg] (tsixBc0b) -- (tsixBc0);
+    \node[lec03s, lec03cB] (tsixBc0l0) at (3.781,-1.900) {B};
+    \draw[lec03msg] (tsixBc0l0) -- (tsixBc0b);
+    \node[lec03s, lec03cC] (tsixBc0l1) at (4.211,-1.900) {C};
+    \draw[lec03msg] (tsixBc0l1) -- (tsixBc0b);
+    \node[lec03s, lec03cD] (tsixBc0l2) at (4.641,-1.900) {D};
+    \draw[lec03msg] (tsixBc0l2) -- (tsixBc0b);
+    \node[lec03s, lec03cC] (tsixBc1) at (5.866,-0.950) {C};
+    \node[lec03bxd] (tsixBc1b) at (5.866,-1.425) {};
+    \draw[lec03msg] (tsixBc1) -- (tsixBrb);
+    \draw[lec03msg] (tsixBc1b) -- (tsixBc1);
+    \node[lec03s, lec03cA] (tsixBc1l0) at (5.221,-1.900) {A};
+    \draw[lec03msg] (tsixBc1l0) -- (tsixBc1b);
+    \node[lec03s, lec03cB] (tsixBc1l1) at (5.651,-1.900) {B};
+    \draw[lec03msg] (tsixBc1l1) -- (tsixBc1b);
+    \node[lec03s, lec03cE] (tsixBc1l2) at (6.081,-1.900) {E};
+    \draw[lec03msg] (tsixBc1l2) -- (tsixBc1b);
+    \node[lec03s, lec03cF] (tsixBc1l3) at (6.511,-1.900) {F};
+    \draw[lec03msg] (tsixBc1l3) -- (tsixBc1b);
+    \node[lec03s, lec03cC] (tsixCr) at (9.518,0.000) {C};
+    \node[lec03bxl] (tsixCrb) at (9.518,-0.475) {};
+    \draw[lec03msg] (tsixCrb) -- (tsixCr);
+    \node[lec03s, lec03cA] (tsixCc0) at (7.841,-0.950) {A};
+    \node[lec03bxd] (tsixCc0b) at (7.841,-1.425) {};
+    \draw[lec03msg] (tsixCc0) -- (tsixCrb);
+    \draw[lec03msg] (tsixCc0b) -- (tsixCc0);
+    \node[lec03s, lec03cB] (tsixCc0l0) at (7.411,-1.900) {B};
+    \draw[lec03msg] (tsixCc0l0) -- (tsixCc0b);
+    \node[lec03s, lec03cC] (tsixCc0l1) at (7.841,-1.900) {C};
+    \draw[lec03msg] (tsixCc0l1) -- (tsixCc0b);
+    \node[lec03s, lec03cD] (tsixCc0l2) at (8.271,-1.900) {D};
+    \draw[lec03msg] (tsixCc0l2) -- (tsixCc0b);
+    \node[lec03s, lec03cB] (tsixCc1) at (9.067,-0.950) {B};
+    \node[lec03bxd] (tsixCc1b) at (9.067,-1.425) {};
+    \draw[lec03msg] (tsixCc1) -- (tsixCrb);
+    \draw[lec03msg] (tsixCc1b) -- (tsixCc1);
+    \node[lec03s, lec03cA] (tsixCc1l0) at (8.852,-1.900) {A};
+    \draw[lec03msg] (tsixCc1l0) -- (tsixCc1b);
+    \node[lec03s, lec03cC] (tsixCc1l1) at (9.282,-1.900) {C};
+    \draw[lec03msg] (tsixCc1l1) -- (tsixCc1b);
+    \node[lec03s, lec03cE] (tsixCc2) at (10.077,-0.950) {E};
+    \node[lec03bxd] (tsixCc2b) at (10.077,-1.425) {};
+    \draw[lec03msg] (tsixCc2) -- (tsixCrb);
+    \draw[lec03msg] (tsixCc2b) -- (tsixCc2);
+    \node[lec03s, lec03cC] (tsixCc2l0) at (9.862,-1.900) {C};
+    \draw[lec03msg] (tsixCc2l0) -- (tsixCc2b);
+    \node[lec03s, lec03cF] (tsixCc2l1) at (10.292,-1.900) {F};
+    \draw[lec03msg] (tsixCc2l1) -- (tsixCc2b);
+    \node[lec03s, lec03cF] (tsixCc3) at (11.088,-0.950) {F};
+    \node[lec03bxd] (tsixCc3b) at (11.088,-1.425) {};
+    \draw[lec03msg] (tsixCc3) -- (tsixCrb);
+    \draw[lec03msg] (tsixCc3b) -- (tsixCc3);
+    \node[lec03s, lec03cC] (tsixCc3l0) at (10.873,-1.900) {C};
+    \draw[lec03msg] (tsixCc3l0) -- (tsixCc3b);
+    \node[lec03s, lec03cE] (tsixCc3l1) at (11.303,-1.900) {E};
+    \draw[lec03msg] (tsixCc3l1) -- (tsixCc3b);
+    \begin{scope}[shift={(2.02,0)}]
+    \node[lec03s, lec03cD] (tsixDr) at (0.430,-2.900) {D};
+    \node[lec03bxl] (tsixDrb) at (0.430,-3.375) {};
+    \draw[lec03msg] (tsixDrb) -- (tsixDr);
+    \node[lec03s, lec03cA] (tsixDc0) at (0.430,-3.850) {A};
+    \node[lec03bxd] (tsixDc0b) at (0.430,-4.325) {};
+    \draw[lec03msg] (tsixDc0) -- (tsixDrb);
+    \draw[lec03msg] (tsixDc0b) -- (tsixDc0);
+    \node[lec03s, lec03cB] (tsixDc0l0) at (0.000,-4.800) {B};
+    \draw[lec03msg] (tsixDc0l0) -- (tsixDc0b);
+    \node[lec03s, lec03cC] (tsixDc0l1) at (0.430,-4.800) {C};
+    \draw[lec03msg] (tsixDc0l1) -- (tsixDc0b);
+    \node[lec03s, lec03cD] (tsixDc0l2) at (0.860,-4.800) {D};
+    \draw[lec03msg] (tsixDc0l2) -- (tsixDc0b);
+    \node[lec03s, lec03cE] (tsixEr) at (3.125,-2.900) {E};
+    \node[lec03bxl] (tsixErb) at (3.125,-3.375) {};
+    \draw[lec03msg] (tsixErb) -- (tsixEr);
+    \node[lec03s, lec03cC] (tsixEc0) at (2.405,-3.850) {C};
+    \node[lec03bxd] (tsixEc0b) at (2.405,-4.325) {};
+    \draw[lec03msg] (tsixEc0) -- (tsixErb);
+    \draw[lec03msg] (tsixEc0b) -- (tsixEc0);
+    \node[lec03s, lec03cA] (tsixEc0l0) at (1.760,-4.800) {A};
+    \draw[lec03msg] (tsixEc0l0) -- (tsixEc0b);
+    \node[lec03s, lec03cB] (tsixEc0l1) at (2.190,-4.800) {B};
+    \draw[lec03msg] (tsixEc0l1) -- (tsixEc0b);
+    \node[lec03s, lec03cE] (tsixEc0l2) at (2.620,-4.800) {E};
+    \draw[lec03msg] (tsixEc0l2) -- (tsixEc0b);
+    \node[lec03s, lec03cF] (tsixEc0l3) at (3.050,-4.800) {F};
+    \draw[lec03msg] (tsixEc0l3) -- (tsixEc0b);
+    \node[lec03s, lec03cF] (tsixEc1) at (3.846,-3.850) {F};
+    \node[lec03bxd] (tsixEc1b) at (3.846,-4.325) {};
+    \draw[lec03msg] (tsixEc1) -- (tsixErb);
+    \draw[lec03msg] (tsixEc1b) -- (tsixEc1);
+    \node[lec03s, lec03cC] (tsixEc1l0) at (3.631,-4.800) {C};
+    \draw[lec03msg] (tsixEc1l0) -- (tsixEc1b);
+    \node[lec03s, lec03cE] (tsixEc1l1) at (4.061,-4.800) {E};
+    \draw[lec03msg] (tsixEc1l1) -- (tsixEc1b);
+    \node[lec03s, lec03cF] (tsixFr) at (6.326,-2.900) {F};
+    \node[lec03bxl] (tsixFrb) at (6.326,-3.375) {};
+    \draw[lec03msg] (tsixFrb) -- (tsixFr);
+    \node[lec03s, lec03cC] (tsixFc0) at (5.606,-3.850) {C};
+    \node[lec03bxd] (tsixFc0b) at (5.606,-4.325) {};
+    \draw[lec03msg] (tsixFc0) -- (tsixFrb);
+    \draw[lec03msg] (tsixFc0b) -- (tsixFc0);
+    \node[lec03s, lec03cA] (tsixFc0l0) at (4.961,-4.800) {A};
+    \draw[lec03msg] (tsixFc0l0) -- (tsixFc0b);
+    \node[lec03s, lec03cB] (tsixFc0l1) at (5.391,-4.800) {B};
+    \draw[lec03msg] (tsixFc0l1) -- (tsixFc0b);
+    \node[lec03s, lec03cE] (tsixFc0l2) at (5.821,-4.800) {E};
+    \draw[lec03msg] (tsixFc0l2) -- (tsixFc0b);
+    \node[lec03s, lec03cF] (tsixFc0l3) at (6.251,-4.800) {F};
+    \draw[lec03msg] (tsixFc0l3) -- (tsixFc0b);
+    \node[lec03s, lec03cE] (tsixFc1) at (7.046,-3.850) {E};
+    \node[lec03bxd] (tsixFc1b) at (7.046,-4.325) {};
+    \draw[lec03msg] (tsixFc1) -- (tsixFrb);
+    \draw[lec03msg] (tsixFc1b) -- (tsixFc1);
+    \node[lec03s, lec03cC] (tsixFc1l0) at (6.831,-4.800) {C};
+    \draw[lec03msg] (tsixFc1l0) -- (tsixFc1b);
+    \node[lec03s, lec03cF] (tsixFc1l1) at (7.261,-4.800) {F};
+    \draw[lec03msg] (tsixFc1l1) -- (tsixFc1b);
+    \end{scope}
+    \draw[rounded corners=4pt, thick, WildStrawberry!80!black] (-0.3,0.35) rectangle (11.6,-2.15);
+    \draw[rounded corners=4pt, thick, RoyalBlue!80!black] (1.72,-2.55) rectangle (9.58,-5.05);
+    \node[font=\scriptsize, WildStrawberry!80!black, anchor=south west] at (-0.3,0.37) {(3) train on a batch of compute graphs ($A,B,C$)};
+    \node[font=\scriptsize, RoyalBlue!80!black, anchor=north west] at (1.72,-5.07) {(4) even for nodes we never trained on ($D,E,F$)};
+  \end{tikzpicture}
+  \caption{Every node defines its own computation graph (slide 39); reused on
+  slides 56--57 for training and for generating embeddings as needed.}
+  \label{fig:lec03-six-trees}
+\end{figure}
+
+\subsection{The math: deep encoder of a GCN}\label{sec:lec03-gcn-math}
+\slides{43, 48}
+
+\textbf{Basic approach:} average neighbour messages and apply a neural network.
+
+\begin{definition}[GCN deep encoder]\label{def:lec03-gcn}
+  \begin{align}
+    \vh_v^{(0)} &= \vx_v, \label{eq:lec03-gcn-init}\\
+    \vh_v^{(k+1)} &= \sigma\Bigl(\mW_k\sum_{u\in\Nb(v)}\frac{\vh_u^{(k)}}{|\Nb(v)|}
+      + \mB_k\vh_v^{(k)}\Bigr),\qquad \forall k\in\{0,\dots,K-1\},
+      \label{eq:lec03-gcn-update}\\
+    \vz_v &= \vh_v^{(K)}. \label{eq:lec03-gcn-out}
+  \end{align}
+\end{definition}
+\begin{itemize}
+  \item $\vh_v^{(0)}=\vx_v$: initial 0-th layer embeddings = node features;
+    $\vh_v^{(k)}$: hidden representation of $v$ at layer $k$;
+    $\sum_{u\in\Nb(v)}\vh_u^{(k)}/|\Nb(v)|$: \textbf{average of neighbours'
+    previous-layer embeddings} (summation is a permutation invariant function);
+    $\sigma$: non-linearity (e.g.\ ReLU); $K$: total number of layers; $\vz_v$:
+    embedding after $K$ layers of neighbourhood aggregation (final embedding).
+  \item \textbf{Model parameters} (slide 48): trainable weight matrices (what we
+    learn): $\mW_k$ = weight matrix for \textbf{neighbourhood aggregation},
+    $\mB_k$ = weight matrix for \textbf{transforming the hidden vector of
+    self}. We can feed these \textbf{embeddings into any loss function} and run
+    SGD to \textbf{train the weight parameters}.
+\end{itemize}
+
+\subsection{GCN: invariance and equivariance}\label{sec:lec03-gcn-inv}
+\slides{44--46}
+
+\begin{itemize}
+  \item \textbf{Given a node, the GCN that computes its embedding is
+    permutation invariant.} Computation graph of target node $D$:
+    $D \leftarrow [\,\cdot\,] \leftarrow A \leftarrow [\,\cdot\,] \leftarrow
+    \{B,C,D\}$ with \textbf{shared} NN weights; the \textbf{average} of
+    neighbours' previous-layer embeddings is permutation invariant.
+  \item \textbf{Considering all nodes in a graph, GCN computation is
+    permutation equivariant}: permute the input, the output also permutes
+    accordingly (\cref{fig:lec03-orders}: target node $D$ in order~1 = $C$ in
+    order~2).
+  \item \textbf{Detailed reasoning:} (1) the rows of \textbf{input node
+    features} and \textbf{output embeddings} are \textbf{aligned}; (2)
+    computing the embedding of \textbf{a given node} with GCN is
+    \textbf{invariant}; (3) so, after permutation, the \textbf{location} of a
+    given node in the input feature matrix is changed, and \textbf{the output
+    embedding of a given node stays the same} (the colours of node feature and
+    embedding are matched) $\Rightarrow$ permutation equivariant.
+\end{itemize}
+
+\subsection{Matrix formulation}\label{sec:lec03-matrix}
+\slides{49--50}
+
+\textbf{Many aggregations can be performed efficiently by (sparse) matrix
+operations.} Let $\mH^{(k)}$ be the matrix of hidden embeddings (row $i$ =
+$\vh_i^{(k)}$) and $\mD$ the diagonal degree matrix:
+\begin{gather}
+  \mH^{(k)} = [\vh_1^{(k)}\cdots\vh_{|V|}^{(k)}]\tp,\qquad
+  \sum_{u\in\Nb_v}\vh_u^{(k)} = \mA_{v,:}\mH^{(k)}, \label{eq:lec03-H}\\
+  D_{v,v}=\mathrm{Deg}(v)=|\Nb(v)|,\qquad
+  D^{-1}_{v,v}=1/|\Nb(v)|\quad(\mD^{-1}\text{ is also diagonal}). \label{eq:lec03-D}
+\end{gather}
+Therefore
+\begin{equation}\label{eq:lec03-mean-matrix}
+  \sum_{u\in\Nb(v)}\frac{\vh_u^{(k)}}{|\Nb(v)|}\ \Longrightarrow\ \mD^{-1}\mA\mH^{(k)} .
+\end{equation}
+\begin{caution}
+  Slide 49 writes $\sum_u\vh_u^{(k-1)}/|\Nb(v)| \Rightarrow \mH^{(k+1)}=\mD^{-1}\mA\mH^{(k)}$:
+  indices mixed; $\mD^{-1}\mA\mH^{(k)}$ is only the neighbour mean, the full layer is \cref{eq:lec03-gcn-matrix}.
+\end{caution}
+Re-writing the update function \cref{eq:lec03-gcn-update} in matrix form:
+\begin{equation}\label{eq:lec03-gcn-matrix}
+  \mH^{(k+1)} = \sigma\bigl(\textcolor{cautionred}{\tilde\mA\mH^{(k)}\mW_k\tp}
+  + \textcolor{keyblue}{\mH^{(k)}\mB_k\tp}\bigr),
+  \qquad \tilde\mA=\mD^{-1}\mA
+\end{equation}
+\begin{itemize}
+  \item \textcolor{cautionred}{Red: neighbourhood aggregation};
+    \textcolor{keyblue}{blue: self transformation} (picture: red edges from
+    the neighbours into $v$, blue self-loop). In practice, efficient
+    \textbf{sparse matrix multiplication} can be used ($\tilde\mA$ is sparse).
+  \item \textbf{Note:} not all GNNs can be expressed in a simple matrix form,
+    when the aggregation function is complex.
+\end{itemize}
+
+\subsection{Training the model}\label{sec:lec03-training}
+\slides{47, 51--54}
+
+\begin{itemize}
+  \item How do we train the GCN to generate embeddings (e.g.\ $\vz_A$)?
+    \textbf{Need to define a loss function on the embeddings.} Node embedding
+    $\vz_v$ is a function of the input graph.
+  \item \textbf{Supervised setting:} minimise the loss $\Loss$ ($\vy$: node
+    label; $\Loss$ could be L2 if $\vy$ is a real number, or cross entropy if
+    $\vy$ is categorical):
+\end{itemize}
+\begin{equation}\label{eq:lec03-supervised}
+  \min_\Theta\ \Loss\bigl(\vy, f_\Theta(\vz_v)\bigr)
+\end{equation}
+\begin{itemize}
+  \item \textbf{Unsupervised setting:} no node label available; \textbf{use the
+    graph structure as the supervision!} One possible idea: ``similar'' nodes
+    have similar embeddings:
+\end{itemize}
+\begin{gather}
+  \min_\Theta\ \Loss = \sum_{z_u,z_v}\mathrm{CE}\bigl(y_{u,v},\DEC(\vz_u,\vz_v)\bigr),
+  \label{eq:lec03-unsupervised}\\
+  \mathrm{CE}\bigl(\vy,f(\vx)\bigr) = -\sum_{i=1}^{C} y_i\log f_\Theta(\vx)_i \label{eq:lec03-ce-unsup}
+\end{gather}
+\begin{itemize}
+  \item $y_{u,v}=1$ when nodes $u$ and $v$ are \textbf{similar};
+    $\vz_u=f_\Theta(u)$; $\DEC(\cdot,\cdot)$ is the dot product. CE: $y_i$ and
+    $f_\Theta(\vx)_i$ are the \textbf{actual} and \textbf{predicted} values of
+    the $i$-th class; intuition: the lower the loss, the closer the prediction
+    is to one-hot.
+  \item \textbf{Node similarity} can be anything from Lecture~2, e.g.\ a loss
+    based on \textbf{random walks} (node2vec, DeepWalk, struc2vec) or
+    \textbf{matrix factorisation}.
+\end{itemize}
+\begin{caution}
+  Slide 52 takes $\DEC$ = dot product inside a cross entropy; CE needs a
+  probability, so read $\DEC(\vz_u,\vz_v)=\sigma(\vz_u\tp\vz_v)$.
+\end{caution}
+\begin{itemize}
+  \item \textbf{Supervised training:} directly train the model for a supervised
+    task (e.g.\ \textbf{node classification}): \emph{safe or toxic drug?} for
+    node $A$ in a drug--drug interaction network. Use cross entropy loss
+    ($\vz_v$: encoder output = node embedding; $\vtheta$: classification
+    weights; $y_v$: node class label):
+\end{itemize}
+\begin{equation}\label{eq:lec03-bce}
+  \Loss = -\sum_{v\in V}\Bigl[\,y_v\log\bigl(\sigma(\vz_v\tp\vtheta)\bigr)
+  + (1-y_v)\log\bigl(1-\sigma(\vz_v\tp\vtheta)\bigr)\Bigr]
+\end{equation}
+\begin{caution}
+  Slide 54 omits the outer brackets (literally $-\sum_v$ applies to the first
+  term only); both terms belong inside $-\sum_v[\dots]$, as in \cref{eq:lec03-bce}.
+\end{caution}
+
+\subsection{Model design and inductive capability}\label{sec:lec03-inductive}
+\slides{55--60}
+
+\begin{itemize}
+  \item \textbf{Model design overview:} (1) define a neighbourhood aggregation
+    function; (2) define a loss function on the embeddings; (3) train on a set
+    of nodes, i.e.\ a batch of compute graphs; (4) generate embeddings for
+    nodes as needed, \textbf{even for nodes we never trained on!}
+    (\cref{fig:lec03-six-trees}).
+  \item \textbf{Inductive capability: the same aggregation parameters are
+    shared for all nodes} (compute graphs of $A$ and $B$ share $\mW_k,\mB_k$ at
+    each level) $\Rightarrow$ the number of model parameters is sublinear in
+    $|V|$ and we can \textbf{generalise to unseen nodes}!
+  \item \textbf{New graphs:} train on one graph, generalise to a new graph
+    (inductive node embedding $\to$ generalise to entirely unseen graphs); e.g.\
+    train on a protein interaction graph from model organism $A$ and generate
+    embeddings on newly collected data about organism $B$.
+  \item \textbf{New nodes:} train with snapshot $\to$ new node arrives $\to$
+    generate embedding $\vz_u$ for the new node. Many application settings
+    constantly encounter previously unseen nodes (e.g.\ Reddit, YouTube,
+    Google Scholar) $\Rightarrow$ need to generate new embeddings ``on the
+    fly''.
+\end{itemize}
+
+\subsection{Interactive visualisation: GNN 101}\label{sec:lec03-gnn101}
+\slides{61--62}
+
+\begin{itemize}
+  \item \textbf{GNN 101} (\url{https://visual-intelligence-umn.github.io/GNN-101};
+    \emph{Visual Learning of GNNs in Your Web Browser}): inner working of
+    a GNN with a \textbf{hierarchical level of detail}; level one = layers
+    (input $\to$ GCNConv1--3 $\to$ global mean pooling $\to$ output), level two
+    = one node in one layer (vector summation, $64\times64$ weight matrix, bias,
+    ReLU), level three = the matrix multiplication. Parameters shown as
+    heatmaps, curves/animations = computation process; hovering over terms in
+    the equation highlights the corresponding visualisation.
+  \item Example: GCN graph classification on \textbf{MUTAG} (graph = chemical
+    compound, nodes = atoms, edges = bonds; mutagenic on \emph{Salmonella
+    typhimurium} or not; 188 graphs, 150 train, 38 test).
+  \item \textbf{Other functions:} GNN variants and tasks: GAT (attention score,
+    e.g.\ $\alpha_{497,194}=0.06$, softmax of
+    $e_{i,j}=\mathrm{LeakyReLU}(\va\mW\vx_i+\va\mW\vx_j)$), node classification,
+    edge prediction (e.g.\ $0.88\to$ True); e.g.\ GAT link prediction on
+    \textbf{Twitch} (nodes = users, edges = mutual follower relationships;
+    77{,}774 edges, 60{,}052 in training). Toggle node-link subgraph view /
+    adjacency \textbf{matrix view}. Tool formulas (GCN; GAT):
+\end{itemize}
+\begin{equation*}
+  \vx_i'=\sigma\Bigl(\mW\!\!\sum_{j\in\Nb(i)\cup\{i\}}\!\frac{e_{j,i}}{\sqrt{\hat d_j\hat d_i}}\vx_j+\vb\Bigr),
+  \qquad
+  \vx_i'=\sigma\Bigl(\mW\!\!\sum_{j\in\Nb(i)\cup\{i\}}\!\alpha_{i,j}\vx_j+\vb\Bigr)
+\end{equation*}
+
+% =====================================================================
+\section{GNNs subsume CNNs (and transformers)}\label{sec:lec03-subsume}
+
+\subsection{CNN as a special GNN}\label{sec:lec03-cnn}
+\slides{63--68}
+
+\begin{itemize}
+  \item \textbf{Architecture comparison:} how do GNNs compare to prominent
+    architectures such as convolutional neural nets?
+  \item CNN layer with $3\times3$ filter (example: image patch
+    $\bigl(\begin{smallmatrix}9&4&1\\1&1&1\\1&2&1\end{smallmatrix}\bigr)$, CNN
+    weights $\bigl(\begin{smallmatrix}0&2&1\\4&1&0\\1&0&1\end{smallmatrix}\bigr)$
+    $\Rightarrow$ output $16$):
+\end{itemize}
+\begin{equation}\label{eq:lec03-cnn}
+  \text{CNN:}\quad \vh_v^{(l+1)} = \sigma\Bigl(\sum_{u\in\Nb(v)\cup\{v\}}\mW_l^{u}\vh_u^{(l)}\Bigr),
+  \qquad\forall l\in\{0,\dots,L-1\},
+\end{equation}
+where \textbf{$\Nb(v)$ represents the 8 neighbour pixels of $v$}. GNN vs.\ CNN
+(image vs.\ graph: 8 neighbours plus a self-loop):
+\begin{align}
+  \text{GNN:}\quad \vh_v^{(l+1)} &= \sigma\Bigl(\textcolor{cautionred}{\mW_l}\sum_{u\in\Nb(v)}\frac{\vh_u^{(l)}}{|\Nb(v)|} + \mB_l\vh_v^{(l)}\Bigr),
+  \qquad\forall l\in\{0,\dots,L-1\} \label{eq:lec03-gnn-vs}\\
+  \text{CNN (rewritten):}\quad \vh_v^{(l+1)} &= \sigma\Bigl(\sum_{u\in\Nb(v)}\textcolor{cautionred}{\mW_l^{u}}\vh_u^{(l)} + \mB_l\vh_v^{(l)}\Bigr),
+  \qquad\forall l\in\{0,\dots,L-1\} \label{eq:lec03-cnn-vs}
+\end{align}
+\begin{itemize}
+  \item \textbf{Key difference:} we can learn different $\mW_l^u$ for different
+    ``neighbour'' $u$ for pixel $v$ on the image. The reason is we can pick an
+    order for the 9 neighbours using \textbf{relative position} to the centre
+    pixel: $\{(-1,-1),(-1,0),(-1,1),\dots,(1,1)\}$.
+\end{itemize}
+\begin{keyidea}[Slide 68]
+  \begin{itemize}
+    \item \textbf{CNN can be seen as a special GNN with fixed neighbour size and
+      ordering:} the size of the filter is pre-defined for a CNN; the advantage
+      of GNN is it processes arbitrary graphs with different degrees for each
+      node.
+    \item \textbf{CNN is not permutation invariant/equivariant:} switching the
+      order of pixels leads to different outputs.
+  \end{itemize}
+\end{keyidea}
+
+\subsection{Transformer as a special GNN}\label{sec:lec03-transformer}
+\slides{69--71}
+
+\begin{itemize}
+  \item \textbf{Transformer} [Vaswani et al., NeurIPS 2017]: among the most
+    popular architectures; great performance in many sequence modelling tasks
+    (diagram: multi-head attention; scaled dot-product attention = MatMul($Q,K$)
+    $\to$ scale $\to$ mask (opt.) $\to$ softmax $\to$ MatMul with $V$).
+    \textbf{Key component: self-attention:} every token/word attends to all
+    the other tokens/words via matrix calculation (``I am a Stanford
+    student'').
+\end{itemize}
+\begin{definition}[Attention]\label{def:lec03-attention}
+  Given a set of vector \emph{values} and a vector \emph{query},
+  \term{attention} is a technique to compute a weighted sum of the values,
+  dependent on the query.
+\end{definition}
+\begin{itemize}
+  \item Each token/word has a \textbf{value vector} (can be seen as the
+    representation of the token/word) and a \textbf{query vector} (used to
+    calculate the attention scores = weights in the weighted sum). E.g.\
+    ``The animal didn't cross the street because it was too tired'': ``it''
+    attends to ``animal''; ``\dots too wide'': ``it'' attends to ``street''.
+\end{itemize}
+\begin{keyidea}[GNN vs.\ transformer]
+  Transformer layer can be seen as a \textbf{special GNN that runs on a
+  fully-connected ``word'' graph}! Since each word attends to \textbf{all the
+  other words}, the computation graph of a transformer layer is identical to
+  that of a GNN on the fully-connected ``word'' graph
+  (\cref{fig:lec03-transformer}; blog: ``Transformers are Graph Neural
+  Networks'', towardsdatascience.com).
+\end{keyidea}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.8, transform shape]
+    \foreach \w/\x [count=\i] in {I/0, am/1.3, a/2.6, Stanford/4.15, student/5.85} {
+      \node[ellipse, draw=Goldenrod!70!black, fill=Goldenrod!45, thick, minimum width=11mm,
+            minimum height=6.5mm, inner sep=1pt, font=\scriptsize] (t\i) at (\x,0) {\w};
+    }
+    \foreach \j/\lo in {2/1.2, 3/1.0, 4/0.9, 5/0.85} {
+      \draw[-{Stealth[length=1.6mm]}, Goldenrod!70!black, thick] (t1.south) to[out=-70, in=-110, looseness=\lo] (t\j.south);
+    }
+    \node[font=\small, cautionred] at (2.9,-2.0) {text};
+    \begin{scope}[shift={(9.7,0.05)}]
+      \foreach \a [count=\i] in {90, 18, -54, -126, 162} {
+        \node[circle, draw=keyblue, very thick, minimum size=6mm] (w\i) at (\a:1.35) {};
+      }
+      \foreach \i in {1,...,5} \foreach \j in {1,...,5} {
+        \ifnum\i<\j \draw[thick, black!45] (w\i) -- (w\j); \fi
+      }
+      \node[above=1pt of w1, font=\small] {I};
+      \node[right=1pt of w2, font=\small] {student};
+      \node[below right=0pt and 0pt of w3, font=\small] {Stanford};
+      \node[below left=0pt and 0pt of w4, font=\small] {a};
+      \node[left=1pt of w5, font=\small] {am};
+      \node[font=\small, cautionred] at (0,-2.05) {(complete) graph};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{Transformer layer = GNN on the complete ``word'' graph (slide 71);
+  only the arrows from ``I'' are drawn.}
+  \label{fig:lec03-transformer}
+\end{figure}
+
+% =====================================================================
+\section{Background: basics of deep learning}\label{sec:lec03-dl}
+
+\subsection{Machine learning as optimisation}\label{sec:lec03-ml-opt}
+\slides{73--76}
+
+\begin{itemize}
+  \item \textbf{Supervised learning:} we are given input $\vx$, and the goal is
+    to predict label $\vy$. Input $\vx$ can be: vectors of real numbers;
+    sequences (natural language); matrices (images); graphs (potentially with
+    node and edge features).
+  \item We formulate the task as an \textbf{optimisation problem}:
+\end{itemize}
+\begin{equation}\label{eq:lec03-objective}
+  \min_{\Theta}\ \Loss\bigl(\vy, f(\vx)\bigr)\qquad\text{(objective function)}
+\end{equation}
+\begin{itemize}
+  \item $\Theta$: a set of \textbf{parameters} we optimise; could contain one or
+    more scalars, vectors, matrices, \dots; e.g.\ $\Theta=\{\mZ\}$ in the shallow
+    encoder (the embedding lookup). $\Loss$: \textbf{loss function}. Example: L2 loss
+    $\Loss(\vy,f(\vx))=\norm{\vy-f(\vx)}_2$. Other common loss functions: L1
+    loss, Huber loss, max margin (hinge loss), cross entropy, \dots{} (see
+    \url{https://pytorch.org/docs/stable/nn.html\#loss-functions}).
+  \item \textbf{Loss function example:} one common loss for classification is
+    \textbf{cross entropy (CE)}. Label $\vy$ is a categorical vector
+    (\textbf{one-hot encoding}), e.g.\ $\vy=[0,0,1,0,0]$ ($\vy$ is of class
+    ``3''). $f(\vx)=\softmax(g(\vx))$, e.g.\ $f(\vx)=[0.1,0.3,0.4,0.1,0.1]$, with
+    ($C$ = number of classes, $g(\vx)_i$ = $i$-th coordinate of the vector
+    output of $g$):
+\end{itemize}
+\begin{equation}\label{eq:lec03-softmax}
+  f(\vx)_i = \frac{e^{g(\vx)_i}}{\sum_{j=1}^{C} e^{g(\vx)_j}}
+\end{equation}
+\begin{caution}
+  Slide 76 says ``Recall from lecture 3'' for the softmax: stale
+  cross-reference (this is Lecture~3).
+\end{caution}
+\begin{equation}\label{eq:lec03-ce}
+  \mathrm{CE}\bigl(\vy,f(\vx)\bigr) = -\sum_{i=1}^{C} y_i\log f(\vx)_i ,
+  \qquad
+  \Loss = \sum_{(\vx,\vy)\in\calT}\mathrm{CE}\bigl(\vy,f(\vx)\bigr)
+\end{equation}
+\begin{itemize}
+  \item $y_i$, $f(\vx)_i$: \textbf{actual} and \textbf{predicted} values of the
+    $i$-th class; intuition: the lower the loss, the closer the prediction is
+    to one-hot. \textbf{Total loss over all training examples:} $\calT$ =
+    training set containing all pairs of data and labels $(\vx,\vy)$.
+\end{itemize}
+
+\subsection{Gradient descent and SGD}\label{sec:lec03-sgd}
+\slides{77--80}
+
+\begin{itemize}
+  \item How to optimise the objective function? \textbf{Gradient vector:}
+    direction and rate of fastest increase ($\Theta_1,\Theta_2,\dots$:
+    components of $\Theta$; entries = partial derivatives):
+\end{itemize}
+\begin{equation}\label{eq:lec03-grad}
+  \nabla_\Theta\Loss = \Bigl(\frac{\partial\Loss}{\partial\Theta_1},\frac{\partial\Loss}{\partial\Theta_2},\dots\Bigr)
+\end{equation}
+\begin{itemize}
+  \item Recall \textbf{directional derivative} of a multi-variable function
+    (e.g.\ $\Loss$) along a given vector = instantaneous rate of change of the
+    function along the vector. \textbf{Gradient is the directional derivative
+    in the direction of largest increase.}
+  \item \textbf{Gradient descent} (iterative algorithm): repeatedly update
+    weights in the (opposite) direction of gradients until convergence:
+\end{itemize}
+\begin{equation}\label{eq:lec03-gd}
+  \Theta \leftarrow \Theta - \eta\,\nabla_\Theta\Loss
+\end{equation}
+\begin{itemize}
+  \item \textbf{Training:} optimise $\Theta$ iteratively; \textbf{iteration}: 1
+    step of gradient descent. \textbf{Learning rate (LR) $\eta$:}
+    hyperparameter that controls the size of the gradient step; can vary over
+    the course of training (LR scheduling).
+  \item \textbf{Ideal termination condition:} gradient $=\vzero$. In practice,
+    stop training if it no longer improves performance on the
+    \textbf{validation set} (part of the dataset held out from training).
+  \item \textbf{Problem with gradient descent:} the exact gradient requires
+    $\nabla_\Theta\Loss(\vy,f(\vx))$ with $\vx$ = the \textbf{entire} dataset
+    (sum of gradient contributions over all points; modern datasets often
+    contain billions of points) $\Rightarrow$ extremely expensive for every
+    step.
+  \item \textbf{Solution: stochastic gradient descent (SGD):} at every step,
+    pick a different \textbf{minibatch} $\mathcal{B}$ containing a subset of
+    the dataset, use it as input $\vx$.
+  \item \textbf{Minibatch SGD concepts:} \textbf{batch size} = number of data
+    points in a minibatch (e.g.\ number of nodes for a node classification
+    task); \textbf{iteration} = 1 step of SGD on a minibatch; \textbf{epoch} =
+    one full pass over the dataset (\# iterations = dataset size / batch size).
+  \item \textbf{SGD is an unbiased estimator of the full gradient}, but no
+    guarantee on the rate of convergence; in practice often requires tuning of
+    the learning rate. Common optimisers that improve over SGD: Adam, Adagrad,
+    Adadelta, RMSprop, \dots
+\end{itemize}
+
+\subsection{Neural network functions and back-propagation}\label{sec:lec03-backprop}
+\slides{81--85}
+
+\begin{itemize}
+  \item Objective $\min_\Theta\Loss(\vy,f(\vx))$; in deep learning, $f$ can be
+    very complex. Start simple: linear function $f(\vx)=\mW\cdot\vx$,
+    $\Theta=\{\mW\}$.
+    \begin{itemize}
+      \item If $f$ returns a scalar, $\mW$ is a learnable \textbf{vector}:
+        $\nabla_\mW f=\bigl(\frac{\partial f}{\partial w_1},\frac{\partial f}{\partial w_2},\frac{\partial f}{\partial w_3},\dots\bigr)$.
+      \item If $f$ returns a vector, $\mW$ is the \textbf{weight matrix} and
+        $\nabla_\mW f$ is the \textbf{Jacobian matrix of $f$}, drawn as
+        $\bigl[\begin{smallmatrix}\partial f_1/\partial w_{11} & \partial f_2/\partial w_{12}\\
+        \partial f_1/\partial w_{21} & \partial f_2/\partial w_{22}\end{smallmatrix}\bigr]$.
+    \end{itemize}
+  \item \textbf{Back-propagation intuition:} to minimise $\Loss$ we need to
+    evaluate the gradient $\nabla_\mW\Loss$, i.e.\ derive the derivative of
+    $\Loss$.
+  \item \textbf{Overview of back-propagation:} $\Loss$ is composed from some set
+    of predefined building block functions $g(\cdot)$; for each such $g$ we also
+    have its derivative $g'$; then we can automatically compute
+    $\nabla_\Theta\Loss$ by evaluating the appropriate $g'$ on the minibatch
+    $\mathcal{B}$.
+\end{itemize}
+\begin{caution}
+  Slide 81's $2\times2$ ``Jacobian'' is schematic (true entries: $\partial f_i/\partial w_{jk}$).
+  Slide 82 writes $\nabla_\mW\Loss=(\frac{\partial f}{\partial w_1},\dots)$; correct: $(\frac{\partial\Loss}{\partial w_1},\frac{\partial\Loss}{\partial w_2},\dots)$.
+\end{caution}
+\begin{itemize}
+  \item More complex function: $f(\vx)=\mW_2(\mW_1\vx)$,
+    $\Theta=\{\mW_1,\mW_2\}$; in other words $h(\vx)=\mW_1\vx$,
+    $g(\vz)=\mW_2\vz$. Recall the \textbf{chain rule}:
+\end{itemize}
+\begin{equation}\label{eq:lec03-chain}
+  \frac{\mathrm{d}f}{\mathrm{d}x} = \frac{\mathrm{d}g}{\mathrm{d}h}\cdot\frac{\mathrm{d}h}{\mathrm{d}x}
+  \quad\text{or}\quad f'(x) = g'\bigl(h(x)\bigr)\,h'(x);
+  \qquad\text{example: }
+  \nabla_\vx f = \frac{\partial f}{\partial(\mW_1\vx)}\cdot\frac{\partial(\mW_1\vx)}{\partial\vx}
+\end{equation}
+\begin{itemize}
+  \item \textbf{Back-propagation:} use of the \textbf{chain rule} to propagate
+    gradients of intermediate steps, and finally obtain the gradient of $\Loss$
+    w.r.t.\ $\Theta$.
+  \item \textbf{Example:} simple 2-layer linear network ($x_1,x_2\to$ 2 hidden
+    units $\to f(\vx)$), $f(\vx)=g(h(\vx))=\mW_2(\mW_1\vx)$. \textbf{Hidden
+    layer:} intermediate representation of input $\vx$; here $h(\vx)=\mW_1\vx$
+    denotes the hidden layer, $f(\vx)=\mW_2h(\vx)$. The loss sums the L2 loss
+    in a minibatch $\mathcal{B}$:
+\end{itemize}
+\begin{equation}\label{eq:lec03-bp-loss}
+  \Loss = \sum_{(\vx,\vy)\in\mathcal{B}}\norm{\vy-f(\vx)}_2
+\end{equation}
+\begin{itemize}
+  \item \textbf{Forward propagation:} compute loss starting from input:
+    $\vx \xrightarrow{\times\mW_1} h \xrightarrow{\times\mW_2} g \xrightarrow{\text{loss}}\Loss$.
+  \item \textbf{Back-propagation} to compute the gradient of
+    $\Theta=\{\mW_1,\mW_2\}$: start from the loss, compute the gradient
+    (compute backwards):
+\end{itemize}
+\begin{equation}\label{eq:lec03-backprop}
+  \frac{\partial\Loss}{\partial\mW_2} = \frac{\partial\Loss}{\partial f}\cdot\frac{\partial f}{\partial\mW_2},
+  \qquad
+  \frac{\partial\Loss}{\partial\mW_1} = \frac{\partial\Loss}{\partial f}\cdot\frac{\partial f}{\partial h}\cdot\frac{\partial h}{\partial\mW_1}
+\end{equation}
+\begin{caution}
+  Slide 84 prints $\norm{(\vy,-f(\vx))}_2$ (comma = typo). Slide 85 writes
+  $\frac{\partial\Loss}{\partial\mW_1}=\frac{\partial\Loss}{\partial f}\cdot\frac{\partial f}{\partial\mW_2}\cdot\frac{\partial\mW_2}{\partial\mW_1}$;
+  correct: the path goes through $h$ (\cref{eq:lec03-backprop}).
+\end{caution}
+
+\subsection{Non-linearity and the multi-layer perceptron}\label{sec:lec03-mlp}
+\slides{86--89}
+
+\begin{itemize}
+  \item In $f(\vx)=\mW_2(\mW_1\vx)$, $\mW_2\mW_1$ is another matrix (vector, if
+    we do binary classification) $\Rightarrow$ $f(\vx)$ is still linear w.r.t.\
+    $\vx$ no matter how many weight matrices we compose.
+  \item We introduce \textbf{non-linearity}: rectified linear unit (ReLU) and
+    sigmoid:
+\end{itemize}
+\begin{equation}\label{eq:lec03-nonlin}
+  \ReLU(x)=\max(x,0),\qquad \sigma(x)=\frac{1}{1+e^{-x}}
+\end{equation}
+\begin{itemize}
+  \item \textbf{Multi-layer perceptron (MLP):} each layer combines linear
+    transformation and non-linearity:
+\end{itemize}
+\begin{equation}\label{eq:lec03-mlp}
+  \vx^{(l+1)} = \sigma\bigl(\mW_l\vx^{(l)} + \vb^{l}\bigr)
+\end{equation}
+\begin{itemize}
+  \item $\mW_l$: weight matrix that transforms the hidden representation at
+    layer $l$ to layer $l+1$; $\vb^l$: bias at layer $l$, added to the linear
+    transformation of $\vx^{(l)}$; $\sigma$: non-linearity function (e.g.\
+    sigmoid).
+  \item Example: $\vx$ 2-dimensional ($x_1,x_2$) $\to$ 3-dimensional hidden
+    representation $\to$ 2 units $\to$ 1-dimensional output; every layer:
+    linear transformation + non-linearity.
+  \item \textbf{Summary} (slide 88): the recipe of slide 13
+    (\cref{eq:lec03-dl-recipe}): objective $\min_\Theta\Loss(\vy,f(\vx))$; $f$ =
+    linear layer, MLP or other NN (e.g.\ a GNN); sample a minibatch; forward
+    propagation; back-propagation ($\nabla_\mW\Loss$ via chain rule); SGD over
+    many iterations. Slide 89: outline, back to deep learning for graphs
+    (\cref{sec:lec03-dlg}).
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\bigskip\phantomsection
+\addcontentsline{toc}{section}{Lecture 3 at a glance}
+\begin{summarybox}[Lecture 3 at a glance]
+  \begin{itemize}
+    \item Deck summary (slide 72): deep learning for graphs = multiple layers of
+      embedding transformation; each layer takes the previous-layer embedding
+      and aggregates neighbours and self. GCN = mean aggregation, matrix form.
+      GNN is a general architecture (CNN is a special GNN).
+    \item Shallow encoders: $\bigO(|V|d)$ parameters, transductive, no features.
+      Graphs have no node ordering $\Rightarrow$ invariance
+      $f(\mA,\mX)=f(\mP\mA\mP\tp,\mP\mX)$ / equivariance
+      $\mP f(\mA,\mX)=f(\mP\mA\mP\tp,\mP\mX)$; an MLP on $[\mA,\mX]$ is neither.
+      GNN = equivariant layers + invariant readout.
+    \item GCN:
+      $\vh_v^{(k+1)}=\sigma(\mW_k\sum_{u\in\Nb(v)}\vh_u^{(k)}/|\Nb(v)|+\mB_k\vh_v^{(k)})$,
+      $\vh_v^{(0)}=\vx_v$, $\vz_v=\vh_v^{(K)}$;
+      $\mH^{(k+1)}=\sigma(\tilde\mA\mH^{(k)}\mW_k\tp+\mH^{(k)}\mB_k\tp)$,
+      $\tilde\mA=\mD^{-1}\mA$. Per node invariant, all nodes equivariant.
+    \item Training: supervised $\min_\Theta\Loss(\vy,f_\Theta(\vz_v))$ (e.g.\
+      BCE with $\sigma(\vz_v\tp\vtheta)$); unsupervised
+      $\sum\mathrm{CE}(y_{u,v},\DEC(\vz_u,\vz_v))$. Shared $\mW_k,\mB_k$
+      $\Rightarrow$ inductive (unseen nodes, new graphs).
+    \item CNN: own $\mW_l^u$ per relative position, fixed size/order, not
+      equivariant. Transformer = GNN on the complete word graph.
+    \item DL basics: $\Theta\leftarrow\Theta-\eta\nabla_\Theta\Loss$ (minibatch
+      SGD); back-prop = chain rule; MLP $\vx^{(l+1)}=\sigma(\mW_l\vx^{(l)}+\vb^l)$.
+  \end{itemize}
+\end{summarybox}

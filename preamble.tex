@@ -1,0 +1,202 @@
+% =====================================================================
+%  preamble.tex -- packages, page layout, and box environments
+%  (Notation macros live in macros.tex.)
+% =====================================================================
+
+% ---------------------------- Fonts & encoding ------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% ---------------------------- Page layout -----------------------------
+\usepackage[letterpaper, top=1in, bottom=1in, left=1in, right=1.35in,
+            marginparwidth=0.95in, marginparsep=0.15in]{geometry}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.4em}
+
+% ---------------------------- Math ------------------------------------
+\usepackage{amsmath, amssymb, amsthm, mathtools}
+\usepackage{bm}
+
+% ---------------------------- General ---------------------------------
+\usepackage{etoolbox}
+\usepackage{xparse}
+\usepackage[dvipsnames, svgnames]{xcolor}
+\usepackage{graphicx}
+\usepackage{booktabs, tabularx, array, multirow}
+\usepackage[shortlabels]{enumitem}
+\setlist{itemsep=0.1em, topsep=0.25em, parsep=0pt}
+\setlist[itemize,2]{label=\textendash}
+\setlist[itemize,3]{label=\textperiodcentered}
+\usepackage{caption, subcaption}
+\captionsetup{font=small, labelfont={bf,sf}}
+\usepackage{marginnote}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+
+% ---------------------------- Figures ---------------------------------
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, shapes.misc,
+                calc, fit, backgrounds, decorations.pathreplacing,
+                matrix, quotes, patterns}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+% Shared TikZ styles for graph drawings (use these for consistency)
+\tikzset{
+  vertex/.style   = {circle, draw=black!70, fill=white, thick,
+                     minimum size=6.5mm, inner sep=0pt, font=\small},
+  vtx/.style      = {circle, draw=black!70, fill=black!10, thick,
+                     minimum size=3.5mm, inner sep=0pt},
+  target/.style   = {vertex, fill=YellowOrange!45},
+  hl/.style       = {vertex, fill=SkyBlue!45},
+  edge/.style     = {thick, black!60},
+  dedge/.style    = {thick, black!60, -{Stealth[length=2.2mm]}},
+  arrow/.style    = {thick, -{Stealth[length=2.6mm]}},
+  block/.style    = {draw, rounded corners=2pt, thick, fill=black!4,
+                     align=center, inner sep=4pt, font=\small},
+  nnbox/.style    = {draw, rounded corners=1pt, thick, fill=Gray!30,
+                     minimum width=5mm, minimum height=5mm},
+}
+
+% ---------------------------- Colours ---------------------------------
+\definecolor{keyblue}{HTML}{1F5FA8}
+\definecolor{intuitionpurple}{HTML}{6A3D9A}
+\definecolor{cautionred}{HTML}{B2182B}
+\definecolor{examorange}{HTML}{D35400}
+\definecolor{connectgreen}{HTML}{1B7837}
+\definecolor{examplegray}{HTML}{4D4D4D}
+\definecolor{asideteal}{HTML}{00796B}
+\definecolor{answercolor}{HTML}{1B5E20}
+
+% ---------------------------- Hyperlinks ------------------------------
+\usepackage[colorlinks=true, linkcolor=keyblue!80!black,
+            urlcolor=keyblue, citecolor=connectgreen,
+            bookmarksnumbered=true]{hyperref}
+\usepackage[capitalise, noabbrev]{cleveref}
+\crefname{chapter}{Lecture}{Lectures}
+\Crefname{chapter}{Lecture}{Lectures}
+
+% ---------------------------- Headers ---------------------------------
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\sffamily\nouppercase{\leftmark}}
+\fancyhead[R]{\small\sffamily CS224W Notes}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\setlength{\headheight}{14pt}
+\renewcommand{\chaptermark}[1]{\markboth{Lecture \thechapter: #1}{}}
+
+% Chapters are lectures
+\renewcommand{\chaptername}{Lecture}
+\usepackage{titlesec}
+\titleformat{\chapter}[display]
+  {\normalfont\sffamily\bfseries\raggedright}
+  {\large\color{keyblue}\MakeUppercase{\chaptername}~\thechapter}
+  {4pt}{\huge}
+\titlespacing*{\chapter}{0pt}{-24pt}{10pt}
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.8em}{}
+\titlespacing*{\section}{0pt}{1.3em}{0.5em}
+\titlespacing*{\subsection}{0pt}{1.0em}{0.35em}
+\titlespacing*{\paragraph}{0pt}{0.6em}{0.8em}
+
+% ---------------------------- Theorem-like ----------------------------
+\usepackage[most]{tcolorbox}
+\tcbuselibrary{breakable, skins}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[chapter]
+\newtheorem{proposition}[definition]{Proposition}
+\newtheorem{fact}[definition]{Fact}
+\crefname{definition}{Definition}{Definitions}
+\crefname{proposition}{Proposition}{Propositions}
+
+\tcolorboxenvironment{definition}{
+  enhanced, breakable, boxrule=0pt, frame hidden, sharp corners,
+  borderline west={2.5pt}{0pt}{keyblue}, colback=keyblue!4,
+  left=6pt, right=4pt, top=3pt, bottom=3pt, before skip=8pt, after skip=8pt}
+\tcolorboxenvironment{proposition}{
+  enhanced, breakable, boxrule=0pt, frame hidden, sharp corners,
+  borderline west={2.5pt}{0pt}{intuitionpurple}, colback=intuitionpurple!4,
+  left=6pt, right=4pt, top=3pt, bottom=3pt, before skip=8pt, after skip=8pt}
+\tcolorboxenvironment{fact}{
+  enhanced, breakable, boxrule=0pt, frame hidden, sharp corners,
+  borderline west={2.5pt}{0pt}{examplegray}, colback=examplegray!4,
+  left=6pt, right=4pt, top=3pt, bottom=3pt, before skip=8pt, after skip=8pt}
+
+% ---------------------------- Note boxes ------------------------------
+% Usage:  \begin{keyidea}[optional subtitle] ... \end{keyidea}
+\tcbset{
+  notebox/.style={enhanced, breakable, sharp corners=south, arc=2pt,
+    boxrule=0.6pt, left=6pt, right=6pt, top=8pt, bottom=4pt,
+    fonttitle=\bfseries\sffamily\small, before skip=9pt, after skip=9pt,
+    attach boxed title to top left={xshift=6pt, yshift=-2.2mm},
+    boxed title style={sharp corners, boxrule=0pt}}
+}
+\NewDocumentCommand{\NewNoteBox}{m m m}{%
+  % #1 env name, #2 label, #3 colour
+  \NewTColorBox{#1}{O{}}{notebox, colback=#3!5, colframe=#3!85!black,
+    boxed title style={colback=#3!85!black},
+    title={#2\ifstrempty{##1}{}{: ##1}}}%
+}
+\NewNoteBox{keyidea}{Key idea}{keyblue}
+\NewNoteBox{intuition}{Intuition}{intuitionpurple}
+\NewNoteBox{example}{Example}{examplegray}
+\NewNoteBox{caution}{Careful}{cautionred}
+\NewNoteBox{examtip}{Exam focus}{examorange}
+\NewNoteBox{connection}{Connection}{connectgreen}
+\NewNoteBox{aside}{Beyond the slides}{asideteal}
+
+% End-of-lecture summary box
+\NewTColorBox{summarybox}{O{Lecture summary}}{enhanced, breakable,
+  colback=keyblue!3, colframe=keyblue!85!black, boxrule=0.8pt, arc=2pt,
+  fonttitle=\bfseries\sffamily, title={#1}, before skip=12pt, after skip=12pt}
+
+% ---------------------------- Self-check ------------------------------
+% \showanswerstrue / \showanswersfalse is set in main.tex.
+% Usage:
+%   \begin{selfcheck}
+%     \qa{Question text}{Answer text}
+%   \end{selfcheck}
+\newif\ifshowanswers
+\showanswerstrue
+\NewTColorBox{selfcheck}{O{Self-check questions}}{enhanced, breakable,
+  colback=examorange!3, colframe=examorange!85!black, boxrule=0.8pt, arc=2pt,
+  fonttitle=\bfseries\sffamily, title={#1},
+  before upper={\begin{enumerate}[label=\textbf{Q\arabic*.}, leftmargin=2.2em,
+                 itemsep=0.6em]},
+  after upper={\end{enumerate}}}
+\NewDocumentCommand{\qa}{+m +m}{%
+  \item #1%
+  \ifshowanswers\par\smallskip
+    {\color{answercolor}\textbf{Answer.}}\ #2%
+  \fi}
+
+% ---------------------------- Misc helpers ----------------------------
+% Slide reference in the margin:  \slides{12--15}
+% (put it on the line right after \section / \subsection)
+\ExplSyntaxOn
+\NewDocumentCommand{\slides}{m}{
+  \marginnote{\raggedright\footnotesize\sffamily\color{black!50}
+    \tl_if_in:nnTF {#1} {-} {Slides}
+      { \tl_if_in:nnTF {#1} {,} {Slides} {Slide} } ~ #1}}
+\ExplSyntaxOff
+% Keep a heading glued to its first paragraph when \slides is used in
+% vertical mode (stock marginnote inserts a page-break point there).
+\makeatletter
+\renewcommand{\mn@vlap}[1]{%
+  \setbox\@tempboxa\vbox to \ht\strutbox{#1\vss}%
+  \nobreak\box\@tempboxa\nobreak\vskip-\baselineskip\nobreak}
+\makeatother
+% Defined term (bold italic):  \term{node embedding}
+\NewDocumentCommand{\term}{m}{\textbf{\emph{#1}}}
+% Lecture heading:  \lecture{<number>}{<title>}{<date>}
+\NewDocumentCommand{\lecture}{m m m}{%
+  \setcounter{chapter}{\numexpr #1 - 1\relax}%
+  \chapter{#2}%
+  {\large\itshape\color{black!65} #3\par}\medskip}
+
+\raggedbottom

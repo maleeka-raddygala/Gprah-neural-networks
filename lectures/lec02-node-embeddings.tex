@@ -1,0 +1,825 @@
+\lecture{2}{Node Embeddings}{Thursday, September 24, 2026}\label{ch:lec02}
+
+\textbf{Outline.} Traditional ML vs.\ graph representation learning $\to$
+encoder--decoder framework (shallow encoding) $\to$ random-walk embeddings
+(objective, negative sampling, SGD; DeepWalk, node2vec) $\to$ embedding entire
+graphs $\to$ matrix factorisation view $\to$ uses and limitations.
+
+% =====================================================================
+\section{Node Embeddings: Motivation}\label{sec:lec02-motivation}
+
+\subsection{Traditional ML on graphs}\label{sec:lec02-traditional}
+\slides{7--9}
+
+\begin{itemize}
+  \item Given an input graph, \textbf{extract node, link and graph-level
+    features}, then learn a model (neural network, etc.) that maps features to
+    labels:
+\end{itemize}
+\[
+  \text{Input graph}
+  \xrightarrow[\text{(node-, edge-, graph-level)}]{\text{feature engineering}}
+  \text{Structured features}\to
+  \underbrace{\text{Learning algorithm}\to\text{Prediction}}_{\text{downstream prediction task}}
+\]
+
+\paragraph{Example of node features: graphlets} (Pr\v{z}ulj et al.,
+\emph{Bioinformatics} 2004).
+\begin{itemize}
+  \item \term{Graphlets}: \textbf{rooted connected induced non-isomorphic}
+    subgraphs. Induced = take some nodes and \emph{all} the edges between them.
+    Graphlet ID = root/``position'' of node $u$ (IDs $0$--$72$ over shapes
+    $G_0,\dots,G_{29}$).
+  \item \textbf{There are 73 different graphlets on up to 5 nodes.}
+  \item Slide-8 example (edges $A\!-\!C$, $B\!-\!C$, $B\!-\!u$, $C\!-\!u$,
+    $u\!-\!E$): $u$ has graphlets $0,1,2,3,5,10,11,\ldots$
+  \item \term{Graphlet degree vector (GDV)}: a count vector of graphlets rooted
+    at a given node. Example (\cref{fig:lec02-gdv}): graphlets on up to 3 nodes
+    $a$ (edge), $b$ (triangle), $c$ (centre of a path), $d$ (end of a path)
+    $\Rightarrow$ $\mathrm{GDV}(u)=[a,b,c,d]=[2,1,0,2]$.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    \tikzset{lec02root/.style={vtx, fill=cautionred!70}}
+    \node[font=\small] at (1.0,1.2) {$G$};
+    \node[target] (u) at (0,0) {$u$};
+    \node[vtx] (x) at (1.0,0.6) {};
+    \node[vtx] (y) at (1.0,-0.6) {};
+    \node[vtx] (xp) at (2.1,0.6) {};
+    \node[vtx] (yp) at (2.1,-0.6) {};
+    \draw[edge] (u)--(x) (u)--(y) (x)--(y) (x)--(xp) (y)--(yp);
+    \node[font=\small, anchor=west] at (3.3,1.2) {root position (red): count at $u$};
+    \node[lec02root] (a1) at (3.8,0.55) {}; \node[vtx] (a2) at (3.8,-0.4) {};
+    \draw[edge] (a1)--(a2);
+    \node[font=\small] at (3.8,-1.0) {$a$: 2};
+    \node[lec02root] (b1) at (5.2,0.55) {}; \node[vtx] (b2) at (4.75,-0.4) {};
+    \node[vtx] (b3) at (5.65,-0.4) {};
+    \draw[edge] (b1)--(b2) (b1)--(b3) (b2)--(b3);
+    \node[font=\small] at (5.2,-1.0) {$b$: 1};
+    \node[lec02root] (c1) at (6.85,0.55) {}; \node[vtx] (c2) at (6.4,-0.4) {};
+    \node[vtx] (c3) at (7.3,-0.4) {};
+    \draw[edge] (c1)--(c2) (c1)--(c3);
+    \node[font=\small] at (6.85,-1.0) {$c$: 0};
+    \node[vtx] (d1) at (8.5,0.55) {}; \node[lec02root] (d2) at (8.05,-0.4) {};
+    \node[vtx] (d3) at (8.95,-0.4) {};
+    \draw[edge] (d1)--(d2) (d1)--(d3);
+    \node[font=\small] at (8.5,-1.0) {$d$: 2};
+  \end{tikzpicture}
+  \caption{GDV of node $u$ from graphlets on up to 3 nodes: $[2,1,0,2]$ (slide 9).}
+  \label{fig:lec02-gdv}
+\end{figure}
+
+\subsection{Graph representation learning}\label{sec:lec02-grl}
+\slides{10--13}
+
+\begin{keyidea}
+  Graph Representation Learning alleviates the need to do feature engineering
+  \textbf{every single time}: \emph{representation learning} automatically
+  learns the features (replaces the feature-engineering step of the pipeline).
+\end{keyidea}
+\begin{itemize}
+  \item \textbf{Goal:} efficient \textbf{task-independent} feature learning for
+    machine learning with graphs. Map each node $u$ to a vector, its
+    \term{feature representation / embedding}:
+\end{itemize}
+\begin{equation}\label{eq:lec02-f}
+  f: u\to\R^d
+\end{equation}
+\begin{itemize}
+  \item \textbf{Why embedding? Task: map nodes into an embedding space.}
+    \begin{itemize}
+      \item Similarity of embeddings between nodes indicates their similarity in
+        the network (e.g.\ both nodes are close to each other / connected by an edge).
+      \item Encode network information.
+      \item Potentially used for many downstream predictions: node
+        classification, link prediction, graph classification, anomalous node
+        detection, clustering, \ldots
+    \end{itemize}
+  \item \textbf{Example:} 2D embedding of the nodes of \textbf{Zachary's Karate
+    Club} network (Perozzi et al., DeepWalk, KDD 2014): input graph with
+    coloured communities $\to$ output points in $\R^2$, where nodes of the same
+    community lie close together.
+\end{itemize}
+
+% =====================================================================
+\section{Encoder and Decoder}\label{sec:lec02-encdec}
+
+\subsection{Setup and goal}\label{sec:lec02-setup}
+\slides{15--19}
+
+\begin{itemize}
+  \item Assume an (undirected) graph $G$: $V$ is the vertex set, $\mA$ the
+    adjacency matrix (assume binary). \textbf{For simplicity: no node features
+    or extra information is used.} Toy example in \cref{fig:lec02-toy}.
+  \item \textbf{Goal:} encode nodes so that \textbf{similarity in the embedding
+    space} (e.g.\ dot product) approximates \textbf{similarity in the graph}:
+\end{itemize}
+\begin{equation}\label{eq:lec02-goal}
+  \underbrace{\similarity(u,v)}_{\text{in the original network}}
+  \;\approx\;
+  \underbrace{\vz_v\tp\vz_u}_{\text{similarity of the embedding}}
+\end{equation}
+\begin{itemize}
+  \item ``Need to define!'': both $\similarity(u,v)$ and the encoder
+    $\ENC(u)=\vz_u$, $\ENC(v)=\vz_v$.
+  \item \textbf{Learning node embeddings:}
+    (1)~\textbf{Encoder} maps from nodes to embeddings;
+    (2)~\textbf{define a node similarity function} (a measure of similarity in
+    the original network);
+    (3)~\textbf{Decoder} $\DEC$ maps from embeddings to the similarity score;
+    (4)~\textbf{optimise the parameters of the encoder} so that
+    $\similarity(u,v)\approx\DEC(\vz_v\tp\vz_u)$, here simply $\vz_v\tp\vz_u$.
+  \item \textbf{Two key components:}
+    \begin{itemize}
+      \item \term{Encoder}: maps each node to a low-dimensional vector,
+        $\ENC(v)=\vz_v$ ($v$: node in the input graph; $\vz_v$: $d$-dimensional
+        embedding).
+      \item \term{Similarity function}: specifies how the relationships in vector
+        space map to the relationships in the original network,
+        $\similarity(u,v)\approx\vz_v\tp\vz_u$; the right side, the dot product
+        between node embeddings, is the \term{decoder}.
+    \end{itemize}
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    \node[vertex] (t1) at (0,0) {1};
+    \node[vertex] (t2) at (1.2,0.45) {2};
+    \node[vertex] (t3) at (2.5,1.0) {3};
+    \node[vertex] (t4) at (0.35,1.45) {4};
+    \draw[edge] (t1)--(t2) (t1)--(t4) (t2)--(t4) (t3)--(t4);
+    \node[font=\small] at (1.2,-0.7) {$V=\{1,2,3,4\}$};
+    \node at (6.0,0.6) {$\mA=\begin{pmatrix}0&1&0&1\\1&0&0&1\\0&0&0&1\\1&1&1&0\end{pmatrix}$};
+  \end{tikzpicture}
+  \caption{Toy graph and its adjacency matrix (slide 15; reused on slides 66, 72, 74).}
+  \label{fig:lec02-toy}
+\end{figure}
+
+\subsection{``Shallow'' encoding}\label{sec:lec02-shallow}
+\slides{20--23}
+
+\begin{definition}[Shallow encoder]\label{def:lec02-shallow}
+  Simplest encoding approach: \textbf{the encoder is just an embedding-lookup}
+  \begin{equation}\label{eq:lec02-lookup}
+    \ENC(v)=\vz_v=\mZ\cdot v,
+  \end{equation}
+  \begin{itemize}
+    \item $\mZ\in\R^{d\times|\calV|}$: \textbf{embedding matrix}, each
+      \textbf{column} is a node embedding \textbf{[what we learn / optimise]}
+      (slide 21: one column per node = the embedding vector for a specific node;
+      \#rows = dimension/size of embeddings);
+    \item $v\in\mathbb{I}^{|\calV|}$: indicator vector, all zeroes except a one in
+      the column indicating node $v$.
+  \end{itemize}
+\end{definition}
+\begin{itemize}
+  \item \textbf{Each node is assigned a unique embedding vector} (i.e.\ we
+    directly optimise the embedding of each node). Many methods: \textbf{DeepWalk,
+    node2vec}.
+  \item \textbf{Framework summary} (encoder + decoder):
+    \begin{itemize}
+      \item Shallow encoder: embedding lookup. Parameters to optimise: $\mZ$,
+        which contains node embeddings $\vz_u$ for all nodes $u\in V$. Deep
+        encoders come later with GNNs.
+      \item \textbf{Decoder:} based on node similarity.
+        \textbf{Objective:} maximise $\vz_v\tp\vz_u$ for node pairs $(u,v)$ that
+        are \textbf{similar}.
+    \end{itemize}
+\end{itemize}
+
+\subsection{How to define node similarity?}\label{sec:lec02-similarity}
+\slides{24--26}
+
+\begin{itemize}
+  \item Key choice of methods is \textbf{how they define node similarity}. Should
+    two nodes have a similar embedding if they \ldots\ \emph{are linked?}
+    \emph{share neighbours?} \emph{have similar ``structural roles''?}
+  \item Now: a node similarity definition that uses \textbf{random walks}, and
+    how to optimise embeddings for such a similarity measure. (Slide 25 repeats
+    the Karate Club example.)
+  \item \textbf{Note on node embeddings:}
+    \begin{itemize}
+      \item \textbf{Unsupervised/self-supervised} way of learning node
+        embeddings: \textbf{not} utilising node labels, \textbf{not} utilising
+        node features. The goal is to directly estimate a set of coordinates
+        (i.e.\ the embedding) of a node so that some aspect of the network
+        structure (captured by $\DEC$) is preserved.
+      \item The embeddings are \textbf{task independent}: not trained for a
+        specific task but can be used for any task.
+    \end{itemize}
+\end{itemize}
+
+% =====================================================================
+\section{Random Walk Approaches for Node Embeddings}\label{sec:lec02-rw}
+
+\subsection{Notation}\label{sec:lec02-notation}
+\slides{28}
+
+\begin{itemize}
+  \item \textbf{Vector $\vz_u$}: the embedding of node $u$ (what we aim to find).
+  \item \textbf{Probability $P(v\mid\vz_u)$}: our model prediction based on
+    $\vz_u$, the \textbf{(predicted) probability} of visiting node $v$ on random
+    walks starting from node $u$.
+  \item Non-linear functions used to produce predicted probabilities:
+    \textbf{softmax} turns a vector of $K$ real values (model predictions) into
+    $K$ probabilities that sum to 1; \textbf{sigmoid} is an S-shaped function
+    that turns real values into the range $(0,1)$:
+\end{itemize}
+\begin{equation}\label{eq:lec02-softmaxdef}
+  S(\vz)[i]=\frac{e^{\vz[i]}}{\sum_{j=1}^{K}e^{\vz[j]}},
+  \qquad
+  \sigma(x)=\frac{1}{1+e^{-x}}
+\end{equation}
+
+\subsection{Random walks}\label{sec:lec02-randomwalks}
+\slides{29--32}
+
+\begin{itemize}
+  \item \term{Random walk}: given a \emph{graph} and a \emph{starting point}, we
+    \textbf{select a neighbour} of it at \textbf{random} and move to this
+    neighbour; then select a neighbour of this point at random, and move to it,
+    etc. The (random) sequence of points visited this way is a \textbf{random walk
+    on the graph} (\cref{fig:lec02-randomwalk}).
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1.1cm,y=0.95cm]
+    \node[vertex] (r1) at (1.0,2.75) {1};
+    \node[vertex] (r2) at (2.0,3.3) {2};
+    \node[vertex] (r3) at (2.65,2.3) {3};
+    \node[target] (r4) at (1.65,1.5) {S};
+    \node[hl] (r5) at (3.0,0.7) {5};
+    \node[vertex] (r6) at (4.3,1.05) {6};
+    \node[vertex] (r7) at (3.95,-0.25) {7};
+    \node[hl] (r8) at (4.6,2.75) {8};
+    \node[hl] (r9) at (4.45,4.3) {9};
+    \node[vertex] (r10) at (5.85,4.45) {10};
+    \node[hl] (r11) at (5.95,2.45) {11};
+    \node[vertex] (r12) at (7.0,3.5) {12};
+    \draw[edge] (r1)--(r2) (r1)--(r3) (r1)--(r4) (r2)--(r3) (r2)--(r8) (r3)--(r4)
+                (r4)--(r5) (r5)--(r6) (r5)--(r7) (r6)--(r7) (r5)--(r8) (r8)--(r9)
+                (r8)--(r11) (r9)--(r10) (r10)--(r11) (r10)--(r12) (r11)--(r12);
+    \tikzset{lec02step/.style={arrow, cautionred, line width=1.0pt},
+             lec02num/.style={font=\scriptsize\bfseries, text=cautionred, fill=white, inner sep=1pt}}
+    \draw[lec02step, bend right=18] (r4) to node[lec02num, below left] {1} (r5);
+    \draw[lec02step, bend right=18] (r5) to node[lec02num, right] {2} (r8);
+    \draw[lec02step, bend left=35] (r8) to node[lec02num, left] {3} (r9);
+    \draw[lec02step, bend left=35] (r9) to node[lec02num, right] {4} (r8);
+    \draw[lec02step, bend right=22] (r8) to node[lec02num, below] {5} (r11);
+  \end{tikzpicture}
+  \caption{A 5-step random walk $S\to5\to8\to9\to8\to11$ from the start node $S$
+  (smiley on slide 29).}
+  \label{fig:lec02-randomwalk}
+\end{figure}
+
+\begin{keyidea}[Random-walk embeddings]
+  $\vz_u\tp\vz_v\approx$ probability that $u$ and $v$ \textbf{co-occur on a
+  random walk} over the graph.
+\end{keyidea}
+\begin{enumerate}
+  \item \textbf{Estimate probability of visiting node $v$ on a random walk
+    starting from node $u$} using some random walk strategy $R$: $P_R(v\mid u)$.
+  \item \textbf{Optimise embeddings to encode these random walk statistics}:
+    similarity in embedding space (here: dot product $=\cos(\theta)$) encodes
+    random walk ``similarity'' (figure: angle $\theta$ between the two
+    embeddings $\propto P_R(v\mid u)$).
+\end{enumerate}
+\textbf{Why random walks?}
+\begin{enumerate}
+  \item \textbf{Expressivity:} flexible stochastic definition of node similarity
+    that \textbf{incorporates both local and higher-order neighbourhood
+    information}. Idea: if a random walk starting from node $u$ visits $v$ with
+    high probability, $u$ and $v$ are similar (high-order multi-hop information).
+  \item \textbf{Efficiency:} do not need to consider all node pairs when
+    training; \textbf{only need to consider pairs that co-occur on random walks}.
+\end{enumerate}
+
+\subsection{Random walk optimisation}\label{sec:lec02-objective}
+\slides{33--37}
+
+\begin{itemize}
+  \item \textbf{Unsupervised feature learning.} Intuition: find embedding of nodes
+    in $d$-dimensional space that preserves similarity. Idea: learn node
+    embedding such that \textbf{nearby} nodes (in the network) are close together
+    (in the embedding space; the slide says ``in the network''). Nearby nodes of
+    $u$: $\NR(u)$, the neighbourhood of $u$ obtained by some \textbf{random walk
+    strategy $R$}.
+  \item \textbf{Feature learning as optimisation.} Given $G=(V,E)$, learn a
+    mapping $f:u\to\R^d$, $f(u)=\vz_u$, with the \textbf{log-likelihood
+    objective}
+\end{itemize}
+\begin{equation}\label{eq:lec02-loglik}
+  \argmax_{z}\;\sum_{u\in V}\log P\big(\NR(u)\mid\vz_u\big)
+  \qquad\text{(maximum likelihood objective)}
+\end{equation}
+\begin{itemize}
+  \item Given node $u$, we want to learn feature representations that are
+    predictive of the nodes in its random walk neighbourhood $\NR(u)$.
+  \item \textbf{Procedure:}
+    (1)~run \textbf{short fixed-length random walks} starting from each node $u$
+    in the graph using some random walk strategy $R$;
+    (2)~for each node $u$ collect $\NR(u)$, the \textbf{multiset} of nodes visited
+    on random walks starting from $u$ (repeat elements: nodes can be visited
+    multiple times);
+    (3)~optimise embeddings according to: \emph{given node $u$, predict its
+    neighbours $\NR(u)$}, i.e.\ \cref{eq:lec02-loglik}.
+  \item \textbf{Equivalently} (with $\log P(\NR(u)\mid\vz_u)=\sum_{v\in\NR(u)}\log
+    P(v\mid\vz_u)$), minimise the negative log-likelihood of the random walk
+    neighbourhoods:
+\end{itemize}
+\begin{equation}\label{eq:lec02-nll}
+  \argmin_{z}\;\Loss=\sum_{u\in V}\;\sum_{v\in\NR(u)}-\log\big(P(v\mid\vz_u)\big)
+\end{equation}
+\begin{itemize}
+  \item \textbf{Parameterise $P(v\mid\vz_u)$ using softmax.} Why softmax? We want
+    node $v$ to be most similar to node $u$ (out of all nodes $n$). Intuition:
+    $\sum_i\exp(x_i)\approx\max_i\exp(x_i)$.
+\end{itemize}
+\begin{equation}\label{eq:lec02-softmax}
+  P(v\mid\vz_u)=\frac{\exp(\vz_u\tp\vz_v)}{\sum_{n\in V}\exp(\vz_u\tp\vz_n)}
+\end{equation}
+\textbf{Putting it all together:}
+\begin{equation}\label{eq:lec02-loss}
+  \Loss=
+  \underbrace{\sum_{u\in V}}_{\text{all nodes }u}\;
+  \underbrace{\sum_{v\in\NR(u)}}_{\substack{\text{nodes $v$ seen on random}\\\text{walks starting from }u}}
+  -\log\Bigg(
+  \underbrace{\frac{\exp(\vz_u\tp\vz_v)}{\sum_{n\in V}\exp(\vz_u\tp\vz_n)}}_{\substack{\text{predicted probability of $u$ and}\\\text{$v$ co-occurring on random walk}}}
+  \Bigg)
+\end{equation}
+\textbf{Optimising random walk embeddings $=$ finding embeddings $\vz_u$ that
+minimise $\Loss$.}
+
+\subsection{Negative sampling}\label{sec:lec02-negsampling}
+\slides{38--41}
+
+\begin{itemize}
+  \item \textbf{But doing this naively is too expensive!} Nested sum over nodes
+    ($\sum_{u\in V}$ and the softmax's $\sum_{n\in V}$) gives
+    $\bigO(|V|^2)$ complexity. \textbf{The normalisation term from the softmax
+    is the culprit} \ldots\ can we approximate it?
+  \item \textbf{Solution: negative sampling.} \textbf{Instead of normalising
+    w.r.t.\ all nodes, just normalise against $k$ random ``negative samples''
+    $n_i$:}
+\end{itemize}
+\begin{equation}\label{eq:lec02-negsamp}
+  \log\left(\frac{\exp(\vz_u\tp\vz_v)}{\sum_{n\in V}\exp(\vz_u\tp\vz_n)}\right)
+  \approx
+  \log\big(\sigma(\vz_u\tp\vz_v)\big)
+  +\sum_{i=1}^{k}\log\big(\sigma(-\vz_u\tp\vz_{n_i})\big),
+  \qquad n_i\sim P_V
+\end{equation}
+\begin{itemize}
+  \item $\sigma$: sigmoid function (makes each term a ``probability'' between 0
+    and 1); $P_V$: random distribution over nodes. Negative sampling allows for
+    \textbf{quick likelihood calculation}.
+  \item \textbf{Why is the approximation valid?} Technically, a different
+    objective. But negative sampling is a form of \textbf{Noise Contrastive
+    Estimation (NCE)}, which approx.\ maximises the log probability of softmax.
+    The new formulation corresponds to using a \textbf{logistic regression}
+    (sigmoid) to distinguish the target node $v$ from nodes $n_i$ sampled from
+    the background distribution $P_V$ (arXiv:1402.3722).
+  \item \textbf{Sample $k$ negative nodes $n_i$ each with probability
+    proportional to its degree.}
+  \item Two considerations for $k$ (\# negative samples): (1)~higher $k$ gives
+    more robust estimates; (2)~higher $k$ corresponds to higher bias on negative
+    events. \textbf{In practice $k=5$--$20$.}
+  \item Can a negative sample be any node or only nodes not on the walk? People
+    often sample \textbf{any} node (for efficiency).
+\end{itemize}
+\begin{caution}
+  Slide 40 has $-\log(\cdot)$ on the left but $+\log\sigma$ terms on the right.
+  Correct: no minus on the left (as on slide 41, \cref{eq:lec02-negsamp}).
+\end{caution}
+
+\subsection{Stochastic gradient descent}\label{sec:lec02-sgd}
+\slides{42--44}
+
+\begin{itemize}
+  \item \textbf{Gradient descent} (a simple way to minimise $\Loss$): initialise
+    $\vz_u$ at some randomised value for all nodes $u$; iterate until
+    convergence: for all $u$ compute the derivative $\partial\Loss/\partial\vz_u$,
+    then for all $u$ make a step in the reverse direction of the derivative
+    ($\eta$: learning rate):
+\end{itemize}
+\begin{equation}\label{eq:lec02-gd}
+  \vz_u\leftarrow\vz_u-\eta\,\frac{\partial\Loss}{\partial\vz_u}
+\end{equation}
+\begin{itemize}
+  \item \textbf{Stochastic gradient descent}: instead of evaluating gradients
+    over all examples, evaluate it for each \textbf{individual} training example.
+    Initialise $\vz_u$ randomly for all $u$; iterate until convergence: sample a
+    node $u$, for all $v$ calculate the gradient $\partial\Loss^{(u)}/\partial\vz_v$
+    and update $\vz_v$:
+\end{itemize}
+\begin{equation}\label{eq:lec02-sgd}
+  \Loss^{(u)}=\sum_{v\in\NR(u)}-\log\big(P(v\mid\vz_u)\big),
+  \qquad
+  \vz_v\leftarrow\vz_v-\eta\,\frac{\partial\Loss^{(u)}}{\partial\vz_v}
+\end{equation}
+\paragraph{Random walks: summary.}
+(1)~Run \textbf{short fixed-length} random walks starting from each node on the
+graph. (2)~For each node $u$ collect $\NR(u)$, the multiset of nodes visited on
+random walks starting from $u$. (3)~Optimise embeddings $\mZ$ using SGD on
+$\Loss=\sum_{u\in V}\sum_{v\in\NR(u)}-\log(P(v\mid\vz_u))$ ---
+\emph{we can efficiently approximate this using negative sampling!}
+
+\subsection{How should we randomly walk? DeepWalk and node2vec}\label{sec:lec02-node2vec}
+\slides{45--49}
+
+\begin{itemize}
+  \item So far: how to optimise embeddings \emph{given} a random walk strategy
+    $R$. \textbf{What strategies should we use to run these random walks?}
+  \item Simplest idea: \textbf{just run fixed-length, unbiased random walks
+    starting from each node} (\term{DeepWalk}, Perozzi et al., KDD). Issue: such
+    notion of similarity is \textbf{too constrained}. How can we generalise this?
+  \item \textbf{Overview of \term{node2vec}} (Grover et al., KDD):
+    \begin{itemize}
+      \item \textbf{Goal:} embed nodes with similar network neighbourhoods close
+        in the feature space; framed as a maximum likelihood optimisation
+        problem, independent of the downstream prediction task.
+      \item \textbf{Key observation:} a flexible notion of network neighbourhood
+        $\NR(u)$ of node $u$ leads to rich node embeddings.
+      \item Develop a \textbf{biased 2nd order random walk} $R$ to generate the
+        network neighbourhood $\NR(u)$ of node $u$.
+    \end{itemize}
+  \item \textbf{Biased walks.} Idea: use flexible, biased random walks that can
+    trade off between \textbf{local} and \textbf{global} views of the network.
+    Two classic strategies to define a neighbourhood $\NR(u)$
+    (\cref{fig:lec02-bfsdfs}); walk of length 3 ($\NR(u)$ of size 3):
+\end{itemize}
+\begin{align}
+  N_{BFS}(u)&=\{s_1,s_2,s_3\} &&\text{\textbf{Local} microscopic view}\label{eq:lec02-bfs}\\
+  N_{DFS}(u)&=\{s_4,s_5,s_6\} &&\text{\textbf{Global} macroscopic view}\label{eq:lec02-dfs}
+\end{align}
+\begin{itemize}
+  \item \textbf{BFS vs.\ DFS:} BFS: $\NR(\cdot)$ provides a \textbf{micro-view}
+    of the neighbourhood; DFS: $\NR(\cdot)$ provides a \textbf{macro-view} of the
+    neighbourhood.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.95]
+    \tikzset{lec02bfsn/.style={vertex, fill=cautionred!20},
+             lec02dfsn/.style={vertex, fill=keyblue!20}}
+    \node[lec02bfsn] (s1) at (0.73,2.07) {$s_1$};
+    \node[lec02bfsn] (s2) at (2.74,2.0) {$s_2$};
+    \node[vertex, fill=black!25] (u) at (1.81,1.07) {$u$};
+    \node[lec02bfsn] (s3) at (0.67,0.1) {$s_3$};
+    \node[lec02dfsn] (s4) at (2.72,0.26) {$s_4$};
+    \node[lec02dfsn] (s5) at (4.2,0.15) {$s_5$};
+    \node[vertex] (s7) at (4.13,1.85) {$s_7$};
+    \node[lec02dfsn] (s6) at (4.86,1.04) {$s_6$};
+    \node[vertex] (s8) at (5.6,1.97) {$s_8$};
+    \node[vertex] (s9) at (5.74,0.36) {$s_9$};
+    \draw[edge] (s1)--(s2) (s1)--(u) (s1)--(s3) (u)--(s2) (u)--(s3) (u)--(s4)
+                (s2)--(s4) (s2)--(s5) (s3)--(s4) (s4)--(s5) (s5)--(s6) (s5)--(s7)
+                (s6)--(s7) (s7)--(s8) (s6)--(s8) (s6)--(s9) (s8)--(s9);
+    \tikzset{lec02bfsa/.style={arrow, cautionred, line width=1.1pt, shorten <=2pt, shorten >=2pt},
+             lec02dfsa/.style={arrow, keyblue, line width=1.1pt, shorten <=2pt, shorten >=2pt}}
+    \draw[lec02bfsa, bend left=12] (u) to (s1);
+    \draw[lec02bfsa, bend left=12] (u) to (s2);
+    \draw[lec02bfsa, bend left=12] (u) to (s3);
+    \draw[lec02dfsa, bend left=14] (u) to (s4);
+    \draw[lec02dfsa, bend left=14] (s4) to (s5);
+    \draw[lec02dfsa, bend left=14] (s5) to (s6);
+    \draw[arrow, cautionred, line width=1.1pt] (6.5,1.5) -- (7.1,1.5) node[right, text=black, font=\small] {BFS};
+    \draw[arrow, keyblue, line width=1.1pt] (6.5,0.8) -- (7.1,0.8) node[right, text=black, font=\small] {DFS};
+  \end{tikzpicture}
+  \caption{BFS vs.\ DFS neighbourhoods of $u$ of size 3 (slides 47--48).}
+  \label{fig:lec02-bfsdfs}
+\end{figure}
+
+\subsection{The biased random walk: parameters \texorpdfstring{$p$}{p} and \texorpdfstring{$q$}{q}}\label{sec:lec02-biased}
+\slides{50--53}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{minipage}{0.55\textwidth}
+    \centering
+    \begin{tikzpicture}[scale=1.05]
+      \node[vertex, fill=black!15] (u) at (0,0) {$u$};
+      \node[vertex, fill=YellowOrange!40] (t) at (1.7,0.08) {$t$};
+      \node[vertex, fill=cautionred!25] (s1) at (1.75,1.45) {$s_1$};
+      \node[vertex, fill=connectgreen!40] (w) at (3.0,0.85) {$w$};
+      \node[vertex, fill=YellowOrange!20] (s2) at (4.5,1.4) {$s_2$};
+      \node[vertex, fill=YellowOrange!20] (s3) at (4.4,0.0) {$s_3$};
+      \draw[edge] (u)--(t) (t)--(s1) (t)--(w) (s1)--(w) (w)--(s2) (w)--(s3);
+      \draw[edge] (t)--(1.45,-0.55);
+      \tikzset{lec02tr/.style={arrow, line width=1.0pt, shorten <=2pt, shorten >=2pt}}
+      \draw[lec02tr, keyblue, bend left=30] (w) to (t);
+      \node[font=\small, text=keyblue] at (2.75,0.1) {$1/p$};
+      \draw[lec02tr, cautionred, bend right=30] (w) to node[above right=-1pt, font=\small] {$1$} (s1);
+      \draw[lec02tr, Brown, bend left=18] (w) to node[above, font=\small] {$1/q$} (s2);
+      \draw[lec02tr, Brown, bend left=18] (w) to node[above right=-1pt, font=\small] {$1/q$} (s3);
+    \end{tikzpicture}
+  \end{minipage}%
+  \begin{minipage}{0.4\textwidth}
+    \centering\small\setlength{\tabcolsep}{4pt}
+    \begin{tabular}{@{}ccc@{}}
+      \toprule
+      Target $x$ & Prob.\ (unnorm.) & Dist.\ $(t,x)$\\
+      \midrule
+      $t$   & $1/p$ & 0\\
+      $s_1$ & $1$   & 1\\
+      $s_2$ & $1/q$ & 2\\
+      $s_3$ & $1/q$ & 2\\
+      \bottomrule
+    \end{tabular}
+  \end{minipage}
+  \caption{One step of the biased walk (slides 51--53): walker came over $(t,w)$
+  and is at $w$; unnormalised transition probabilities segmented by distance
+  from $t$.}
+  \label{fig:lec02-n2vstep}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Interpolating BFS and DFS:} biased fixed-length random walk $R$
+    that, given a node $u$, generates neighbourhood $\NR(u)$. Two parameters:
+    \begin{itemize}
+      \item \term{Return parameter $p$}: return back to the previous node.
+      \item \term{In-out parameter $q$}: moving outwards (DFS) vs.\ inwards (BFS)
+        from the previous node; intuitively, $q$ is the ``ratio'' of BFS vs.\ DFS.
+    \end{itemize}
+    Specify how a \textbf{single step} is performed; the random walk is then just
+    a sequence of these steps.
+  \item \textbf{One step:} define the walk by the transition probabilities on
+    edges adjacent to the current node $w$. The walk \textbf{just traversed edge
+    $(t,w)$} and \textbf{is now at $w$}; we specify edge transition probs.\ out of
+    $w$. \textbf{Insight:} neighbours of $w$ can only be at distance 0, 1 or 2
+    from $t$.
+  \item $p,q$ model transition probabilities ($p$: return parameter; $q$:
+    ``walk away'' parameter); unnormalised probabilities for $w\to x$
+    (\cref{fig:lec02-n2vstep}):
+\end{itemize}
+\begin{equation}\label{eq:lec02-alpha}
+  \alpha_{pq}(t,x)=
+  \begin{cases}
+    1/p & \text{if } d(t,x)=0 \quad(x=t),\\
+    1   & \text{if } d(t,x)=1,\\
+    1/q & \text{if } d(t,x)=2.
+  \end{cases}
+\end{equation}
+\begin{itemize}
+  \item Normalise over the neighbours of $w$ (in the example: divide by
+    $1/p+1+2/q$).
+  \item \textbf{BFS-like walk: low value of $p$.} \textbf{DFS-like walk: low
+    value of $q$.} $\NR(u)$ are the nodes visited by the biased walk.
+\end{itemize}
+
+\begin{caution}
+  Slide 53 says ``walker came over edge $(s_1,w)$''; it should be $(t,w)$ (the
+  table's distances are measured from $t$).
+\end{caution}
+
+\subsection{node2vec algorithm and other random walk ideas}\label{sec:lec02-n2v-alg}
+\slides{54--57}
+
+\begin{itemize}
+  \item \textbf{node2vec algorithm:}
+    (1)~compute edge transition probabilities: for each edge $(t,w)$ compute edge
+    walk probabilities (based on $p,q$) of edges $(w,\cdot)$;
+    (2)~simulate $r$ random walks of length $l$ starting from each node $u$;
+    (3)~optimise the node2vec objective using SGD.
+    \textbf{Linear-time} complexity; all 3 steps are \textbf{individually
+    parallelisable}.
+  \item \textbf{Other random walk ideas:}
+    \begin{itemize}
+      \item Different kinds of biased random walks: based on node attributes
+        (Dong et al.); based on learned weights (Abu-El-Haija et al.).
+      \item Alternative optimisation schemes: directly optimise based on 1-hop and
+        2-hop random walk probabilities (as in LINE from Tang et al.).
+      \item Network preprocessing techniques: run random walks on modified
+        versions of the original network (e.g.\ Ribeiro et al.\ struct2vec,
+        Chen et al.\ HARP).
+    \end{itemize}
+  \item \textbf{Summary so far.} \textbf{Core idea:} embed nodes so that distances
+    in embedding space reflect node similarities in the original network.
+    Different notions of node similarity: na\"ive (similar if two nodes are
+    connected); random walk approaches (covered today).
+  \item \textbf{So, what method should I use?} No one method wins in all cases;
+    e.g.\ node2vec performs better on node classification while alternative
+    methods perform better on link prediction (Goyal and Ferrara, survey).
+    Random walk approaches are generally more efficient. \textbf{In general:} must
+    choose the definition of node similarity that matches your application.
+\end{itemize}
+
+% =====================================================================
+\section{Embedding Entire Graphs}\label{sec:lec02-graphemb}
+\slides{59--63}
+
+\begin{itemize}
+  \item \textbf{Goal:} embed a subgraph or an entire graph $G$; graph embedding
+    $\vz_G$. \textbf{Tasks:} classifying toxic vs.\ non-toxic molecules;
+    identifying anomalous graphs.
+  \item \textbf{Approach 1} (simple but effective): run a standard graph
+    embedding technique \emph{on} the (sub)graph $G$, then just \textbf{sum (or
+    average)} the node embeddings in the (sub)graph $G$. Used by Duvenaud et al.\
+    to classify molecules based on their graph structure.
+\end{itemize}
+\begin{equation}\label{eq:lec02-sumpool}
+  \vz_G=\sum_{v\in G}\vz_v
+\end{equation}
+\begin{itemize}
+  \item \textbf{Approach 2:} introduce a \textbf{``virtual node''} to represent
+    the (sub)graph $S$ (figure: an extra node connected to all nodes of the
+    circled subgraph $S$) and run a standard graph embedding technique; the
+    virtual node's embedding is $\vz_S$. Proposed by Li et al.\ as a
+    general technique for subgraph embedding.
+  \item \textbf{Summary:} Approach 1: embed nodes and sum/avg them. Approach 2:
+    create a super-node that spans the (sub)graph and then embed that node.
+  \item \textbf{Preview -- hierarchical embeddings (\term{DiffPool}):} we can also
+    \textbf{hierarchically} cluster nodes in graphs, and \textbf{sum/avg} the node
+    embeddings according to these clusters. Figure: each cluster becomes one
+    node of the next level: original network (5 clusters) $\to$ pooled network at
+    level 1 (5 nodes, 2 clusters) $\to$ level 2 (2 nodes) $\to$ level 3 (1 node)
+    $\to$ its embedding is fed to a neural network for graph classification.
+\end{itemize}
+
+% =====================================================================
+\section{Matrix Factorization and Node Embeddings}\label{sec:lec02-mf}
+
+\subsection{Edge-based similarity}\label{sec:lec02-mf-adj}
+\slides{65--67}
+
+\begin{itemize}
+  \item \textbf{Recall:} encoder as an embedding lookup ($\mZ$: one column per
+    node). Objective: maximise $\vz_v\tp\vz_u$ for node pairs $(u,v)$ that are
+    similar.
+  \item Simplest \textbf{node similarity}: nodes $u,v$ are similar if they are
+    connected by an edge. This means $\vz_v\tp\vz_u=A_{u,v}$, the $(u,v)$ entry of
+    the adjacency matrix $\mA$. Figure (toy graph of \cref{fig:lec02-toy}):
+    highlighted entry $A_{2,4}=1$ (edge $2$--$4$) $=$ row $u$ of $\mZ\tp$
+    ($\vz_u$) $\times$ column $v$ of $\mZ$ ($\vz_v$). Therefore:
+\end{itemize}
+\begin{equation}\label{eq:lec02-ztz}
+  \vz_v\tp\vz_u=A_{u,v}
+  \quad\Longrightarrow\quad
+  \mZ\tp\mZ=\mA
+\end{equation}
+\begin{itemize}
+  \item The embedding dimension $d$ (number of rows in $\mZ$) is much smaller than
+    the number of nodes $n$ $\Rightarrow$ exact factorisation $\mA=\mZ\tp\mZ$ is
+    generally not possible. However, we can learn $\mZ$ approximately:
+\end{itemize}
+\begin{equation}\label{eq:lec02-mf-obj}
+  \min_{\mZ}\;\big\lVert\mA-\mZ\tp\mZ\big\rVert_2
+\end{equation}
+\begin{itemize}
+  \item We optimise $\mZ$ such that it minimises the L2 norm (Frobenius norm) of
+    $\mA-\mZ\tp\mZ$. Note: today we used softmax instead of L2, but the goal to
+    approximate $\mA$ with $\mZ\tp\mZ$ is the same.
+\end{itemize}
+\begin{keyidea}
+  Conclusion: \textbf{inner product decoder with node similarity defined by edge
+  connectivity is equivalent to matrix factorisation of $\mA$.}
+\end{keyidea}
+
+\subsection{Random walk-based similarity}\label{sec:lec02-mf-rw}
+\slides{68--69}
+
+\begin{itemize}
+  \item DeepWalk and node2vec have a more complex \textbf{node similarity}
+    definition based on random walks.
+  \item \textbf{DeepWalk is equivalent to matrix factorisation} of the following
+    complex matrix expression (Qiu et al., \emph{Network Embedding as Matrix
+    Factorization: Unifying DeepWalk, LINE, PTE, and node2vec}):
+\end{itemize}
+\begin{equation}\label{eq:lec02-netmf}
+  \log\!\left(\mathrm{vol}(G)\left(\frac{1}{T}\sum_{r=1}^{T}\big(\mD^{-1}\mA\big)^{r}\right)\mD^{-1}\right)-\log b,
+  \qquad
+  \mathrm{vol}(G)=\sum_i\sum_jA_{i,j}
+\end{equation}
+\begin{itemize}
+  \item $\mathrm{vol}(G)$: \textbf{volume of graph}; $\mD$: \textbf{diagonal
+    matrix}, $D_{u,u}=\deg(u)$; $(\mD^{-1}\mA)^r$: \textbf{power of normalised
+    adjacency matrix}; $T$: \textbf{context window size}, $T=|\NR(u)|$ (see Lec 3
+    slide 30); $b$:
+    \textbf{number of negative samples}.
+  \item \textbf{node2vec} can also be formulated as a matrix factorisation
+    (albeit a more complex matrix); refer to the paper for details.
+\end{itemize}
+
+% =====================================================================
+\section{Using Embeddings, Summary and Limitations}\label{sec:lec02-use}
+
+\subsection{How to use embeddings}\label{sec:lec02-howtouse}
+\slides{70--71}
+
+How to use embeddings $\vz_i$ of nodes:
+\begin{itemize}
+  \item \textbf{Clustering/community detection:} cluster points $\vz_i$.
+  \item \textbf{Node classification:} predict label of node $i$ based on $\vz_i$.
+  \item \textbf{Link prediction:} predict edge $(i,j)$ based on $(\vz_i,\vz_j)$;
+    we can concatenate, avg, product, or take a difference between the
+    embeddings ($*$ = Hadamard, per coordinate product):
+\end{itemize}
+\begin{align}
+  \text{Concatenate: }& f(\vz_i,\vz_j)=g([\vz_i,\vz_j]) &
+  \text{Hadamard: }& f(\vz_i,\vz_j)=g(\vz_i*\vz_j)\notag\\
+  \text{Sum/Avg: }& f(\vz_i,\vz_j)=g(\vz_i+\vz_j) &
+  \text{Distance: }& f(\vz_i,\vz_j)=g(\norm{\vz_i-\vz_j}_2)\label{eq:lec02-linkpred}
+\end{align}
+\begin{itemize}
+  \item \textbf{Graph classification:} graph embedding $\vz_G$ via aggregating
+    node embeddings or virtual-node; predict label based on $\vz_G$.
+  \item \textbf{Today's summary:} graph representation learning = a way to learn
+    \textbf{node and graph embeddings} for downstream tasks \textbf{without
+    feature engineering}. Encoder-decoder framework (encoder: embedding lookup;
+    decoder: predict score based on embedding to match node similarity). Node
+    similarity measure: (biased) random walk (examples: DeepWalk, node2vec).
+    Extension to graph embedding: node embedding aggregation.
+\end{itemize}
+
+\subsection{Limitations}\label{sec:lec02-limitations}
+\slides{72--74}
+
+Limitations of node embeddings via matrix factorisation and random walks:
+\begin{enumerate}
+  \item \textbf{Transductive (not inductive) method:} cannot obtain embeddings for
+    nodes not in the training set; cannot apply to new graphs. If you apply
+    DeepWalk to the same graph multiple times, you'll get a different embedding
+    each time. Why? (stochastic: random walks, initialisation, SGD).
+    Example: a newly added node 5 at test time (e.g.\ new user in a social
+    network), attached to node 2 of the toy training graph: cannot compute its
+    embedding with DeepWalk/node2vec $\Rightarrow$ need to recompute all node
+    embeddings.
+  \item \textbf{Cannot capture structural similarity} (\cref{fig:lec02-struct}):
+    nodes 1 and 11 are \textbf{structurally similar} (part of one triangle,
+    degree 2, \ldots) but have very \textbf{different} embeddings: it's unlikely
+    that a random walk will reach node 11 from node 1. \textbf{DeepWalk and
+    node2vec do not capture structural similarity.}
+  \item \textbf{Cannot utilise node, edge and graph features}, e.g.\ a feature
+    vector per node (protein properties in a protein-protein interaction graph):
+    DeepWalk/node2vec embeddings do not incorporate such node features.
+\end{enumerate}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.8]
+    \node[target] (g1) at (0,0) {1};
+    \node[vertex] (g2) at (1.3,0.35) {2};
+    \node[vertex] (g3) at (0.4,1.2) {3};
+    \node[vertex] (g4) at (2.3,0.95) {4};
+    \node[vertex] (g5) at (3.4,0.95) {5};
+    \node[vertex] (g10) at (7.0,0.95) {10};
+    \node[vertex] (g13) at (8.2,1.35) {13};
+    \node[vertex] (g12) at (9.3,0.5) {12};
+    \node[target] (g11) at (7.95,0.0) {11};
+    \draw[edge] (g1)--(g2) (g1)--(g3) (g2)--(g3) (g3)--(g4) (g4)--(g5)
+                (g10)--(g13) (g13)--(g12) (g12)--(g11) (g11)--(g13);
+    \draw[edge, dashed] (g5)--(g10);
+  \end{tikzpicture}
+  \caption{Nodes 1 and 11 are structurally similar but far apart (slide 73).}
+  \label{fig:lec02-struct}
+\end{figure}
+
+\begin{keyidea}
+  Solution to these limitations: \textbf{Deep Representation Learning and Graph
+  Neural Networks} (covered in depth next).
+\end{keyidea}
+
+% ---------------------------------------------------------------------
+\bigskip\phantomsection
+\addcontentsline{toc}{section}{Lecture 2 at a glance}
+\begin{summarybox}[Lecture 2 at a glance]
+  \begin{itemize}
+    \item \textbf{Representation learning} replaces per-task feature engineering:
+      learn $f:u\to\R^d$, task-independent, unsupervised (no labels, no features).
+    \item \textbf{Encoder--decoder:} $\ENC(v)=\vz_v$;
+      $\similarity(u,v)\approx\vz_v\tp\vz_u$ (decoder = dot product). Key choice:
+      how to define node similarity.
+    \item \textbf{Shallow encoder:} $\ENC(v)=\vz_v=\mZ\cdot v$,
+      $\mZ\in\R^{d\times|\calV|}$ (one column per node; DeepWalk, node2vec).
+    \item \textbf{Random-walk similarity:} $\vz_u\tp\vz_v\approx$ prob.\ that $u,v$
+      co-occur on a walk; expressive (multi-hop) and efficient (co-occurring pairs only).
+    \item \textbf{Objective:} minimise
+      $\Loss=\sum_{u\in V}\sum_{v\in\NR(u)}-\log P(v\mid\vz_u)$
+      ($\Leftrightarrow$ maximise the log-likelihood
+      $\sum_{u\in V}\log P(\NR(u)\mid\vz_u)$).
+    \item \textbf{Softmax:}
+      $P(v\mid\vz_u)=\exp(\vz_u\tp\vz_v)/\sum_{n\in V}\exp(\vz_u\tp\vz_n)$
+      $\Rightarrow$ naive cost $\bigO(|V|^2)$.
+    \item \textbf{Negative sampling:} $\log P(v\mid\vz_u)\approx\log\sigma(\vz_u\tp\vz_v)
+      +\sum_{i=1}^k\log\sigma(-\vz_u\tp\vz_{n_i})$, $n_i\sim P_V\propto$ degree;
+      $k=5$--$20$. Optimise with SGD:
+      $\vz_v\leftarrow\vz_v-\eta\,\partial\Loss^{(u)}/\partial\vz_v$.
+    \item \textbf{DeepWalk:} unbiased fixed-length walks. \textbf{node2vec:} biased
+      2nd-order walk, weights $1/p,1,1/q$ for $d(t,x)=0,1,2$; BFS (local, micro)
+      vs.\ DFS (global, macro); linear time, parallelisable.
+    \item \textbf{Graph embedding:} $\vz_G=\sum_{v\in G}\vz_v$, virtual node,
+      DiffPool (hierarchical).
+    \item \textbf{Matrix factorisation:} edge similarity $\Leftrightarrow$
+      $\min_{\mZ}\lVert\mA-\mZ\tp\mZ\rVert_2$; DeepWalk factorises
+      $\log\big(\mathrm{vol}(G)(\frac1T\sum_{r=1}^T(\mD^{-1}\mA)^r)\mD^{-1}\big)-\log b$.
+    \item \textbf{Uses:} clustering, node classification, link prediction
+      (concat / Hadamard / sum / distance), graph classification.
+      \textbf{Limitations:} transductive, no structural similarity, no features
+      $\Rightarrow$ GNNs.
+  \end{itemize}
+\end{summarybox}

@@ -1,0 +1,653 @@
+\lecture{1}{Introduction to Machine Learning with Graphs}{Tuesday, September 22, 2026}\label{ch:lec01}
+
+\textbf{Outline.} Course logistics $\to$ why graphs (graphs as a language, databases,
+why graph DL is hard) $\to$ choice of graph representation $\to$ applications: node-,
+link- and graph-level tasks.
+
+% =====================================================================
+\section{Course logistics}\label{sec:lec01-logistics}
+\slides{2--20}
+
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabularx}{\linewidth}{@{}l l >{\raggedright\arraybackslash}X@{}}
+    \toprule
+    Component & Weight & Details \\
+    \midrule
+    Homework & 20\% & 3 written HWs, 6.67\% each; theory, algorithm design, math;
+      take longer ($\sim$10--20\,h) -- start early \\
+    Coding (Colabs) & 15\% & 5 Google Colabs, 3\% each; shorter ($\sim$3--5\,h); hands-on
+      coding/training of GNNs; Colab~0 not graded \\
+    Exam & 35\% & single exam, \textbf{Wed 11/18}; \textbf{in-person, closed-book, timed};
+      written questions similar to the homeworks \\
+    Course project & 30\% & proposal, milestone, final report; focus on real-world
+      applications of GNNs; groups of up to 3 (1--2 allowed but discouraged) \\
+    Extra credit & -- & Ed participation, PyG/GraphGym code contribution; used if on the
+      boundary between grades \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Grading (slides 12--17).}\label{tab:lec01-grading}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{Topics:} node embeddings (DeepWalk, Node2Vec); GNNs (GCN, GraphSAGE,
+    GAT, \ldots); graph transformers; knowledge graphs and reasoning (TransE); generative
+    models for graphs (GraphRNN); relational deep learning (databases); GNN + LLMs;
+    applications to biomedicine, science, technology.
+  \item \textbf{Prerequisites:} course is self-contained; no single topic is too hard, but
+    \emph{many} topics make it hard. Background in ML, algorithms and graph theory,
+    probability and statistics, linear algebra; non-trivial Python programs; PyTorch a plus.
+  \item \textbf{Tools:} \textbf{PyG} (PyTorch Geometric) -- ``the ultimate library for
+    GNNs''; \textbf{GraphGym} -- platform for designing GNNs (modularized implementation,
+    simple hyperparameter tuning, flexible customization) -- both very helpful for the
+    project; other: SNAP.PY, NetworkX.
+    Readings: \emph{Graph Representation Learning} book (Will Hamilton) + research papers.
+  \item \textbf{Submission:} Gradescope. 2 late periods (LP) per student, max 1 per
+    assignment; an LP gives 4 extra days (Thu 11:59pm $\to$ Mon 11:59pm); \textbf{no LP for
+    the final report}.
+\end{itemize}
+
+% =====================================================================
+\section{Why graphs?}\label{sec:lec01-why-graphs}
+
+\subsection{Graphs: a general language}\label{sec:lec01-language}
+\slides{22--25}
+
+\begin{keyidea}
+  Graphs are a general language for describing and analyzing \textbf{entities with
+  relations/interactions}.
+\end{keyidea}
+
+\textbf{Many types of data are graphs:}
+\begin{itemize}
+  \item event graphs, computer networks, disease pathways, food webs, particle networks,
+    underground networks;
+  \item social, economic, communication and citation networks, the Internet, networks of
+    neurons;
+  \item knowledge graphs (e.g.\ Leonard Nimoy $\xrightarrow{\text{played}}$ Spock
+    $\xrightarrow{\text{characterIn}}$ Star Trek $\xrightarrow{\text{genre}}$ Science
+    Fiction), regulatory networks, scene graphs, code graphs, molecules, 3D shapes.
+\end{itemize}
+
+\subsection{Databases are graphs: Relational Deep Learning}\label{sec:lec01-rdl}
+\slides{26--28}
+
+\begin{itemize}
+  \item Relational databases = tables linked by keys: \textbf{commerce} (customers, orders,
+    orders\_items, items), \textbf{finance} (loan, order, trans, account, disp, card,
+    client, district), \textbf{clinical trial} (patients, admissions, noteevents,
+    procedures\_icd, diagnoses\_icd).
+  \item \term{Relational Deep Learning} (RDL): tables Users / Sales (ID, Product\_ID,
+    Session\_ID, User\_ID, Price) / Products $\Rightarrow$ graph with \textbf{rows as
+    nodes} and \textbf{key links as edges} (\cref{fig:lec01-rdl}). Benchmark:
+    \texttt{relbench.stanford.edu}.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85, transform shape,
+      tbl/.style={draw, rounded corners=2pt, thick, fill=black!4, align=left,
+                  font=\scriptsize, inner sep=3pt},
+      usr/.style={circle, draw=black!70, thick, fill=Orchid!35, minimum size=5mm,
+                  inner sep=0pt, font=\scriptsize},
+      sale/.style={rectangle, rounded corners=1.5pt, draw=black!70, thick,
+                   fill=Goldenrod!35, inner sep=1.5pt, font=\tiny},
+      prod/.style={circle, draw=black!70, thick, fill=SkyBlue!45, minimum size=5mm,
+                   inner sep=0pt}]
+    \node[tbl] (ts) at (2.1,1.4) {\textbf{Sales}\\ ID\\ Product\_ID\\ Session\_ID\\ User\_ID\\ Price};
+    \node[tbl] (tu) at (-0.6,1.4) {\textbf{Users}\\ ID};
+    \node[tbl] (tp) at (5.0,1.4) {\textbf{Products}\\ Product\_ID};
+    \draw[arrow, black!60] (ts.west) -- (tu.east);
+    \draw[arrow, black!60] (ts.east) -- (tp.west);
+    \draw[-{Stealth[length=3mm]}, line width=1.6pt, black!40] (6.2,1.4) -- (6.9,1.4);
+    \foreach \i/\y in {1/3.0, 2/2.0, 3/1.0, 4/0.0} \node[usr] (u\i) at (7.4,\y) {$u_\i$};
+    \foreach \i/\y/\p in {1/3.3/20, 2/2.75/80, 3/2.2/15, 4/1.65/20, 5/1.1/80, 6/0.55/80, 7/0.0/15}
+      \node[sale] (s\i) at (9.1,\y) {\$\p};
+    \node[prod, label={[font=\scriptsize]right:shirt}] (shirt) at (10.8,2.75) {};
+    \node[prod, label={[font=\scriptsize]right:shoe}]  (shoe)  at (10.8,1.55) {};
+    \node[prod, label={[font=\scriptsize]right:sunglasses}] (sun) at (10.8,0.35) {};
+    \draw[edge] (u1)--(s1) (u1)--(s2) (u2)--(s3) (u3)--(s4) (u3)--(s5) (u4)--(s6) (u4)--(s7);
+    \draw[edge] (s1)--(shirt) (s4)--(shirt) (s2)--(shoe) (s5)--(shoe) (s6)--(shoe)
+                (s3)--(sun) (s7)--(sun);
+    \node[font=\scriptsize] at (7.4,-0.6) {Users};
+    \node[font=\scriptsize] at (9.1,-0.6) {Sales};
+    \node[font=\scriptsize] at (10.8,-0.6) {Products};
+  \end{tikzpicture}
+  \caption{RDL: schema $\to$ graph of rows (slide 27; prices from slides 46/68). Reused
+  for the churn example and the summary.}\label{fig:lec01-rdl}
+\end{figure}
+
+\begin{keyidea}
+  Complex domains have a rich relational structure, which can be represented as a
+  \textbf{relational graph}. \textbf{By explicitly modeling relationships we achieve
+  better performance!}\\
+  \textbf{Main question:} how do we take advantage of relational structure for better
+  prediction?
+\end{keyidea}
+
+\subsection{Why is graph deep learning hard?}\label{sec:lec01-hard}
+\slides{29--32}
+
+\begin{itemize}
+  \item \textbf{Modern deep learning toolbox is designed for simple sequences \& grids}:
+    images = grids (CNN: patterns of local contrast $\to$ face features $\to$ faces);
+    text/speech/audio = sequences (RNN/LSTM).
+  \item \textbf{Networks are complex:}
+    \begin{itemize}
+      \item arbitrary size and complex topological structure (i.e.\ \textbf{no spatial
+        locality} like grids);
+      \item \textbf{no fixed node ordering} or reference point;
+      \item often \textbf{dynamic} and have \textbf{multimodal features}.
+    \end{itemize}
+\end{itemize}
+
+\begin{keyidea}[This course]
+  How can we develop neural networks that are much more broadly applicable?
+  \textbf{Graphs are the new frontier of deep learning.}
+\end{keyidea}
+
+% =====================================================================
+\section{Choice of graph representation}\label{sec:lec01-representation}
+
+\subsection{Graphs: a common language}\label{sec:lec01-common}
+\slides{34}
+
+\begin{itemize}
+  \item The \textbf{same graph} describes different domains: actors linked by movies
+    (Movie 1, 2, 3), people linked by relations (friend, brothers, co-worker), interacting
+    proteins (1, 2, 5, 9), or abstract nodes $1$--$4$ with $|N|=4$, $|E|=4$
+    (\cref{fig:lec01-common}). (Slide uses $N$ for the node set; from slide 35 on it is $V$.)
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85, lab/.style={font=\scriptsize\itshape, midway}]
+    \node[vtx, fill=Red!40, label=above:{\small Peter}]  (P) at (-0.4,1.3) {};
+    \node[vtx, fill=Red!40, label=above:{\small Mary}]   (M) at (2.2,1.45) {};
+    \node[vtx, fill=Red!40, label=right:{\small Tom}]    (T) at (4.0,0.8) {};
+    \node[vtx, fill=Red!40, label=below:{\small Albert}] (A) at (1.2,0) {};
+    \draw[edge] (P) -- node[lab, above]{friend} (M);
+    \draw[edge] (P) -- node[lab, left]{brothers} (A);
+    \draw[edge] (M) -- node[lab, left]{friend} (A);
+    \draw[edge] (M) -- node[lab, below, sloped]{co-worker} (T);
+    \node[vertex] (v1) at (6.0,1.3) {1};
+    \node[vertex] (v2) at (8.2,1.45) {2};
+    \node[vertex] (v4) at (9.8,0.9) {4};
+    \node[vertex] (v3) at (7.4,0) {3};
+    \draw[edge] (v1)--(v2) (v1)--(v3) (v2)--(v3) (v2)--(v4);
+    \node[font=\small, align=left] at (9.6,-0.1) {$|N| = 4$\\ $|E| = 4$};
+  \end{tikzpicture}
+  \caption{One structure, many domains (slide 34): social network (left) and the abstract
+  graph (right); the actor and protein networks are identical.}\label{fig:lec01-common}
+\end{figure}
+
+\subsection{Heterogeneous graphs}\label{sec:lec01-hetero}
+\slides{35--36}
+
+\begin{definition}[Heterogeneous graph]\label{def:lec01-hetero}
+  A \term{heterogeneous graph} is defined as
+  \begin{equation}\label{eq:lec01-hetero}
+    G = (V, E, R, T)
+  \end{equation}
+  \begin{itemize}
+    \item nodes with node types $v_i \in V$;
+    \item edges with relation types $(v_i, r, v_j) \in E$;
+    \item node type $T(v_i)$; relation type $r \in R$;
+    \item nodes and edges have \textbf{attributes/features}.
+  \end{itemize}
+\end{definition}
+
+\textbf{Many graphs are heterogeneous:}
+\begin{itemize}
+  \item \textbf{Biomedical knowledge graphs:} node types drug, disease, adverse event,
+    protein, pathway; relations e.g.\ TREATS, CAUSES, IS\_A, ASSOC, HAS\_FUNC.
+    Example node: \emph{Migraine}; edge: (fulvestrant, Treats, Breast Neoplasms); node type:
+    \emph{Protein}; edge type (relation): \emph{Causes}.
+  \item \textbf{Academic graphs} (\cref{fig:lec01-academic}): example node: \emph{ICML};
+    edge: (GraphSAGE, NeurIPS); node type: \emph{Author}; edge type (relation):
+    \emph{pubYear}.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85, transform shape,
+      sch/.style={draw, thick, minimum width=14mm, minimum height=5.5mm, font=\scriptsize,
+                  fill=white},
+      rl/.style={font=\tiny, text=BrickRed}]
+    \node[sch] (Pa) at (0,0) {Paper};
+    \node[sch] (Co) at (-3.0,0) {Conference};
+    \node[sch] (Ti) at (2.9,0) {Title};
+    \node[sch] (Au) at (-1.2,-1.5) {Author};
+    \node[sch] (Ye) at (1.2,-1.5) {Year};
+    \draw[dedge] (Pa) -- node[rl, above]{pubWhere} (Co);
+    \draw[dedge] (Pa) -- node[rl, above]{hasTitle} (Ti);
+    \draw[dedge] (Pa) -- node[rl, left]{hasAuthor} (Au);
+    \draw[dedge] (Pa) -- node[rl, right]{pubYear} (Ye);
+    \draw[dedge] ([xshift=-2mm]Pa.north) to[out=110, in=70, looseness=8]
+      node[rl, above, font=\scriptsize]{cite} ([xshift=2mm]Pa.north);
+  \end{tikzpicture}
+  \caption{Academic graph schema: node types and relation types (slide 36).}\label{fig:lec01-academic}
+\end{figure}
+
+\begin{caution}
+  Slide 36 labels the relation ``hasTtile'' (typo for \emph{hasTitle}); its example edge
+  (GraphSAGE, NeurIPS) omits the relation -- as a triple: (GraphSAGE, pubWhere, NeurIPS).
+\end{caution}
+
+\subsection{Choosing a proper representation}\label{sec:lec01-choosing}
+\slides{37}
+
+\begin{itemize}
+  \item How to build a graph: \textbf{what are nodes? what are edges?}
+  \item \textbf{Choice of the proper network representation of a given domain/problem
+    determines our ability to use networks successfully:}
+    \begin{itemize}
+      \item in some cases there is a unique, unambiguous representation;
+      \item in other cases the representation is by no means unique;
+      \item the way you assign links will determine the nature of the question you can
+        study.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Directed vs.\ undirected graphs}\label{sec:lec01-directed}
+\slides{38}
+
+\begin{itemize}
+  \item \term{Undirected}: links undirected (\textbf{symmetrical, reciprocal}).
+    \term{Directed}: links directed (\cref{fig:lec01-dir}).
+  \item Other considerations: \textbf{weights}, \textbf{properties}, \textbf{types},
+    \textbf{attributes}.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.72,
+      rv/.style={circle, fill=Red!70, draw=Red!80!black, inner sep=0pt, minimum size=2.8mm},
+      gv/.style={circle, fill=Green!60!black, draw=Green!40!black, inner sep=0pt, minimum size=2.8mm},
+      nl/.style={font=\scriptsize\bfseries}]
+    % undirected
+    \node[rv, label={[nl]left:A}]  (A) at (2.1,-1.1) {};
+    \node[rv, label={[nl]left:L}]  (L) at (4.2,-0.8) {};
+    \node[rv, label={[nl]right:M}] (M) at (6.55,-1.4) {};
+    \node[rv, label={[nl]above:F}] (F) at (4.7,-2.0) {};
+    \node[rv, label={[nl]below right:D}] (D) at (2.9,-2.5) {};
+    \node[rv, label={[nl]below:B}] (B) at (1.4,-2.85) {};
+    \node[rv, label={[nl]above:I}] (I) at (7.35,-2.6) {};
+    \node[rv, label={[nl]below left:G}] (G) at (5.7,-3.05) {};
+    \node[rv, label={[nl]below:C}] (C) at (2.65,-4.15) {};
+    \node[rv, label={[nl]below:H}] (H) at (6.75,-3.75) {};
+    \draw[edge] (A)--(D) (B)--(D) (D)--(F) (F)--(G) (G)--(H) (H)--(I) (L)--(M);
+    \draw[edge] (C) to[bend left=25] (D);
+    \draw[edge] (C) to[bend right=25] (D);
+    \draw[edge] (B) to[out=160, in=210, looseness=14] (B);
+    \node[font=\small\bfseries, text=Magenta] at (4.2,0.0) {Undirected};
+    % directed
+    \begin{scope}[xshift=7.0cm]
+      \node[gv, label={[nl]above:B}]  (b) at (3.8,-1.05) {};
+      \node[gv, label={[nl]above:C}]  (c) at (5.6,-1.85) {};
+      \node[gv, label={[nl]above:D}]  (d) at (7.1,-1.25) {};
+      \node[gv, label={[nl]below:A}]  (a) at (2.8,-3.15) {};
+      \node[gv, label={[nl]left:G}]   (g) at (5.4,-3.2) {};
+      \node[gv, label={[nl]above:E}]  (e) at (8.7,-3.0) {};
+      \node[gv, label={[nl]right:F}]  (f) at (7.2,-4.3) {};
+      \draw[dedge] (a) to[bend left=18] (b);
+      \draw[dedge] (b) to[bend left=18] (a);
+      \draw[dedge] (b)--(c);
+      \draw[dedge] (a)--(c);
+      \draw[dedge] (d)--(c);
+      \draw[dedge] (e)--(d);
+      \draw[dedge] (f)--(e);
+      \draw[dedge] (g)--(f);
+      \node[font=\small\bfseries, text=Magenta] at (5.8,0.0) {Directed};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{Undirected vs.\ directed example graphs (slide 38); the undirected one includes a
+  self-loop at B and a double edge C--D.}\label{fig:lec01-dir}
+\end{figure}
+
+\subsection{Bipartite graphs}\label{sec:lec01-bipartite}
+\slides{39}
+
+\begin{definition}[Bipartite graph]\label{def:lec01-bipartite}
+  A \term{bipartite graph} is a graph whose nodes can be divided into two disjoint sets $U$
+  and $V$ such that every link connects a node in $U$ to one in $V$; that is, $U$ and $V$
+  are \textbf{independent sets}.
+\end{definition}
+
+\begin{minipage}[c]{0.7\linewidth}
+\begin{itemize}
+  \item \textbf{Examples:} Authors-to-Papers (they authored), Actors-to-Movies (they
+    appeared in), Users-to-Movies (they rated), Recipes-to-Ingredients (they contain).
+  \item \term{``Folded'' networks}: author collaboration networks, movie co-rating
+    networks. (Folding = keep one side, link two of its nodes if they share a neighbour on
+    the other side.)
+\end{itemize}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.26\linewidth}
+  \centering
+  \begin{tikzpicture}[scale=0.6, transform shape,
+      uv/.style={vertex, fill=Red!45}, vv/.style={vertex, fill=Green!45}]
+    \foreach \n/\y in {A/3.2, B/2.4, C/1.6, D/0.8, E/0.0} \node[uv] (\n) at (0,\y) {\n};
+    \foreach \n/\y in {1/2.9, 2/2.0, 3/1.1, 4/0.2} \node[vv] (v\n) at (2,\y) {};
+    \draw[edge] (A)--(v1) (A)--(v2) (B)--(v1) (B)--(v3) (C)--(v3) (D)--(v2) (D)--(v4)
+                (E)--(v1) (E)--(v4);
+    \node at (0,-0.7) {\Large $U$}; \node at (2,-0.7) {\Large $V$};
+  \end{tikzpicture}\\[-2pt]
+  {\footnotesize Slide 39 example.}
+\end{minipage}
+
+% =====================================================================
+\section{Applications of graph ML: types of tasks}\label{sec:lec01-tasks}
+\slides{40--42}
+
+\begin{itemize}
+  \item Task levels: \textbf{node level}; \textbf{edge level}; \textbf{community
+    (subgraph) level}; \textbf{graph level} -- graph-level prediction, graph generation.
+  \item Review: \textbf{node-level}, \textbf{link-level}, \textbf{graph-level} prediction
+    (\cref{fig:lec01-tasks}).
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[q/.style={font=\small\bfseries}]
+    \node[vertex] (A) at (0,0) {A};
+    \node[target, label={[font=\small, text=ForestGreen!60!black]right:\textbf{?} node level}]
+      (B) at (1.7,0.6) {B};
+    \node[vertex] (C) at (1.35,-1.3) {C};
+    \node[vertex] (D) at (2.5,-0.6) {D};
+    \node[vertex] (E) at (3.7,-0.5) {E};
+    \node[vertex] (F) at (5.2,0.2) {F};
+    \node[vertex] (G) at (5.15,-1.05) {G};
+    \node[vertex] (H) at (3.6,-2.1) {H};
+    \draw[edge] (A)--(C) (B)--(C) (B)--(D) (C)--(D) (D)--(E) (D)--(H) (E)--(F) (E)--(G);
+    \draw[thick, dotted, blue] (A) -- node[q, above left, text=blue, inner sep=1pt]{link level ?} (B);
+    \draw[thick, dotted, blue] (C) -- node[q, pos=0.78, below, text=blue]{?} (G);
+    \draw[thick, dotted, BurntOrange] (2.4,-0.55) ellipse (4.1 and 2.3);
+    \node[font=\small, text=BurntOrange, anchor=west] at (6.2,1.2) {graph level ?};
+  \end{tikzpicture}
+  \caption{Prediction levels on the example graph (slides 42, 52): label of node B; is
+  there a link A--B (or C--G)?; label of the whole graph.}\label{fig:lec01-tasks}
+\end{figure}
+
+% =====================================================================
+\section{Node-level tasks}\label{sec:lec01-node}
+
+\subsection{Node classification and node-level structure}\label{sec:lec01-node-class}
+\slides{44--45}
+
+\begin{itemize}
+  \item \term{Node classification}: some nodes labelled (two classes), others unknown
+    (``?''); ML assigns labels to all nodes.
+  \item \textbf{Node-level network structure. Goal:} characterize the structure and
+    position of a node in the network:
+    \begin{itemize}
+      \item node degree;
+      \item node importance \& position -- e.g.\ number of shortest paths passing through a
+        node; avg.\ shortest path length to other nodes;
+      \item substructures around the node.
+    \end{itemize}
+    (Slide graph = \cref{fig:lec01-tasks} with A--B as an edge.)
+\end{itemize}
+
+\subsection{Example (1): user churn}\label{sec:lec01-churn}
+\slides{46}
+
+\begin{itemize}
+  \item Users--Sales--Products graph of \cref{fig:lec01-rdl}; predict per user
+    \textbf{Churn} vs.\ \textbf{Active}.
+  \item \textbf{Training labels together with timestamps are attached to the graph}:
+    $u_1$, $u_2$: Churn (May '23), Active (June '23); $u_3$: Active (June '23); $u_4$:
+    Active (April '23), Churn (May '23), Active (June '23).
+\end{itemize}
+
+\subsection{Example (2): protein folding}\label{sec:lec01-alphafold}
+\slides{47--50}
+
+\begin{itemize}
+  \item \textbf{Task:} computationally predict a protein's \textbf{3D structure} based solely
+    on its amino acid \textbf{sequence}: \textbf{for each node predict its 3D coordinates}.
+  \item Experimental result vs.\ computational prediction: T1037\,/\,6vr4 (RNA polymerase
+    domain) \textbf{90.7 GDT}; T1049\,/\,6y4f (adhesin tip) \textbf{93.3 GDT}.
+  \item \textbf{AlphaFold impact:} median free-modelling accuracy (GDT) at CASP: CASP7--12
+    (2006--2016) $\approx$30--40; AlphaFold (CASP13, 2018) $\approx$58; AlphaFold~2 (CASP14,
+    2020) $\approx$87 (read off the bar chart). Headlines: ``close to solving one of
+    biology's greatest challenges'', ``could turbocharge drug discovery'', etc.
+    \textbf{Nobel Prize in Chemistry 2024} (Oct.\ 9, 2024): David Baker (Univ.\ of
+    Washington; computational protein design), Demis Hassabis and John M.\ Jumper (Google
+    DeepMind; protein structure prediction) -- the second Nobel that week to involve AI.
+  \item \textbf{Key idea: ``spatial graph''.} \textbf{Nodes:} amino acids in a protein
+    sequence. \textbf{Edges:} proximity between amino acids (residues).
+  \item Architecture: protein sequence $\to$ genetics search \& embed $\to$ MSA embedding
+    (\emph{sequence--residue edges}); embed \& outer sum $\to$ \emph{residue--residue edges}
+    (= spatial graph; gives pairwise distances); both $\to$ structure module $\to$ 3D
+    structure + confidence score.
+\end{itemize}
+
+% =====================================================================
+\section{Link-level tasks}\label{sec:lec01-link}
+
+\subsection{Link-level prediction task}\label{sec:lec01-linkpred}
+\slides{52}
+
+\begin{itemize}
+  \item Predict \textbf{new/missing/unknown links} based on the existing links.
+  \item At test time, node pairs (with no existing links) are \textbf{ranked}, and the
+    \textbf{top $K$} node pairs are predicted.
+  \item Task: make a prediction for \textbf{a pair of nodes} (A--B, C--G in
+    \cref{fig:lec01-tasks}).
+\end{itemize}
+
+\subsection{Example (1): recommender systems}\label{sec:lec01-recsys}
+\slides{53--54}
+
+\begin{itemize}
+  \item Users interact with items (watch movies, buy merchandise, listen to music).
+    \textbf{Nodes:} users and items. \textbf{Edges:} user--item interactions.
+    \textbf{Goal:} recommend items users might like (``you might also like'' links).
+  \item \textbf{PinSage} (Ying et al., KDD 2018): \textbf{task:} recommend related pins to
+    users (query pin: cake $\to$ another cake = successful, sweater = bad recommendation).
+    Learn node embeddings $z_i$ such that
+    \begin{equation}\label{eq:lec01-pinsage}
+      d(z_{\text{cake1}}, z_{\text{cake2}}) < d(z_{\text{cake1}}, z_{\text{sweater}})
+    \end{equation}
+    $\Rightarrow$ \textbf{predict whether two nodes in a graph are related}. (Figure: pins
+    linked in a graph; a GNN computation graph produces the embedding $z$ of a pin.)
+\end{itemize}
+
+\subsection{Example (2): drug side effects}\label{sec:lec01-polypharmacy}
+\slides{55--57}
+
+\begin{itemize}
+  \item Many patients take multiple drugs to treat complex or co-existing diseases:
+    \textbf{46\% of people ages 70--79 take more than 5 drugs}; many patients take more than
+    20 drugs (heart disease, depression, insomnia, etc.).
+  \item \textbf{Task:} given a pair of drugs predict adverse side effects (e.g.\ one side
+    effect with 30\% prob., another with 65\% prob.).
+  \item \textbf{Biomedical graph link prediction} (Zitnik et al., Bioinformatics 2018):
+    \textbf{nodes:} drugs \& proteins; \textbf{edges:} interactions -- drug--protein,
+    protein--protein, and drug--drug side-effect edges ($r_1$ = gastrointestinal bleed,
+    $r_2$ = bradycardia).
+  \item \textbf{Query:} how likely will Simvastatin and Ciprofloxacin, when taken together,
+    break down muscle tissue?
+\end{itemize}
+
+\begin{caution}
+  Slide 56 defines $r_2$ = bradycardia in the legend, but labels the queried
+  Simvastatin--Ciprofloxacin edge ``$r_2$ (breakdown of muscle tissue)'': the query is a
+  different side effect.
+\end{caution}
+
+\textbf{Results: de novo predictions} (top 10; 5 with literature evidence):
+\begin{center}\small
+\begin{tabular}{@{}r l l l l@{}}
+  \toprule
+  Rank & Drug $c$ & Drug $d$ & Side effect $r$ & Evidence found \\
+  \midrule
+  1 & Pyrimethamine & Aliskiren & Sarcoma & Stage et al.\ 2015 \\
+  2 & Tigecycline & Bimatoprost & Autonomic neuropathy & \\
+  3 & Omeprazole & Dacarbazine & Telangiectases & \\
+  4 & Tolcapone & Pyrimethamine & Breast disorder & Bicker et al.\ 2017 \\
+  5 & Minoxidil & Paricalcitol & Cluster headache & \\
+  6 & Omeprazole & Amoxicillin & Renal tubular acidosis & Russo et al.\ 2016 \\
+  7 & Anagrelide & Azelaic acid & Cerebral thrombosis & \\
+  8 & Atorvastatin & Amlodipine & Muscle inflammation & Banakh et al.\ 2017 \\
+  9 & Aliskiren & Tioconazole & Breast inflammation & Parving et al.\ 2012 \\
+  10 & Estradiol & Nadolol & Endometriosis & \\
+  \bottomrule
+\end{tabular}
+\end{center}
+\begin{itemize}
+  \item Case report supporting rank 8: ``Severe Rhabdomyolysis due to Presumed Drug
+    Interactions between Atorvastatin with Amlodipine and Ticagrelor''.
+\end{itemize}
+
+% =====================================================================
+\section{Graph-level tasks}\label{sec:lec01-graph}
+
+\subsection{Graph-level prediction}\label{sec:lec01-graphpred}
+\slides{59}
+
+\begin{itemize}
+  \item \textbf{Goal:} make a prediction for an \textbf{entire graph} or a \textbf{subgraph}
+    of the graph. (Slide example: two clusters $\{A,B,C,D\}$ and $\{E,F,G,H\}$ joined by
+    D--E.)
+\end{itemize}
+
+\subsection{Example (1): traffic prediction}\label{sec:lec01-traffic}
+\slides{60--62}
+
+\begin{itemize}
+  \item Google Maps, Stanford $\to$ UC Berkeley: via I-880\,N 51 min (38.9 mi, fastest);
+    via I-280\,N 52 min (46.2 mi); via CA-84\,E and I-880\,N 52 min (41.1 mi).
+  \item \textbf{Road network as a graph:} \textbf{nodes:} road segments (each with a
+    feature vector); \textbf{edges:} connectivity between road segments;
+    \textbf{prediction:} time of arrival (ETA) from A to B.
+  \item \textbf{Predicting ETA with GNNs} -- \textbf{used in Google Maps}: anonymised travel
+    data $\xrightarrow{\text{analysed}}$ supersegments $\xrightarrow{\text{training data}}$
+    GNN $\xrightarrow{\text{predictions}}$ routes ranked by ETA (candidate user routes
+    A$\to$B from the Google Maps routing system) $\xrightarrow{\text{surfaced}}$ Google
+    Maps API / app.
+\end{itemize}
+
+\subsection{Example (2): drug discovery}\label{sec:lec01-antibiotics}
+\slides{63--64}
+
+\begin{itemize}
+  \item \textbf{Antibiotics are small molecular graphs.} \textbf{Nodes:} atoms.
+    \textbf{Edges:} chemical bonds. (Slide: $\beta$-lactam families -- penicillins,
+    cephalosporins, cephamycins, oxacephems, clavulanic acid, penems, carbapenems,
+    nocardicin, monobactams.)
+  \item \textbf{Deep learning for antibiotic discovery} (Stokes et al., Cell 2020): a GNN
+    \textbf{graph classification model}; predict promising molecules from a pool of
+    candidates.
+    \begin{itemize}
+      \item Model: directed message passing neural network (new vector of bond $2\!\to\!1$
+        from concat of bond $2\!\to\!1$ and the sum over bonds into atom 2: $3\!\to\!2$,
+        $4\!\to\!2$).
+      \item Training set ($10^4$ molecules) $\to$ ML $\to$ predictions \& model validation
+        $\to$ iterative re-training; large-scale predictions (upper limit $10^8$+) over the
+        chemical landscape $\to$ lead identification \& optimization.
+      \item vs.\ conventional small-molecule screening: upper limit $10^5$--$10^6$, hit
+        validation 1--3\% hit rate.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Example (3): physics simulation}\label{sec:lec01-physics}
+\slides{65--66}
+
+\begin{itemize}
+  \item Sanchez-Gonzalez et al., ICML 2020. \textbf{Physical simulation as a graph:}
+    \textbf{nodes:} particles; \textbf{edges:} interaction between particles.
+  \item \textbf{Graph evolution task. Goal:} predict how a graph will evolve over time.
+    A learned simulator $s_\theta$ (learned $d_\theta$ + Update) is applied repeatedly:
+\end{itemize}
+\begin{equation}\label{eq:lec01-rollout}
+  X^{t_0} \xrightarrow{\;s_\theta\;} \cdots \xrightarrow{\;s_\theta\;} \tilde X^{t_K}
+\end{equation}
+\begin{itemize}
+  \item $d_\theta$ = encoder--processor--decoder (\cref{fig:lec01-epd}):
+    (c) \textbf{construct graph}: $\vx_i \to$ node $\vv_i^0$, edges $\ve_{i,j}^0$;
+    (d) \textbf{pass messages}: $(\vv_i^m, \ve_{i,j}^m) \to (\vv_i^{m+1}, \ve_{i,j}^{m+1})$;
+    (e) \textbf{extract dynamics info}: $\vv_i^M \to \vy_i$.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[op/.style={circle, draw, thick, inner sep=0pt, minimum size=4.5mm}]
+    \node (X) at (0,0) {$X$};
+    \node[block] (enc) at (1.45,0) {Encoder};
+    \node (G0) at (2.95,0) {$G^0$};
+    \node[op] (p1) at (4.55,0) {$+$};
+    \node[block] (gn1) at (3.75,0.95) {GN$^1$};
+    \node (G1) at (5.5,0) {$G^1$};
+    \node (dots) at (6.3,0) {$\cdots$};
+    \node (GM1) at (7.2,0) {$G^{M-1}$};
+    \node[op] (pM) at (8.95,0) {$+$};
+    \node[block] (gnM) at (8.15,0.95) {GN$^M$};
+    \node (GM) at (10.0,0) {$G^M$};
+    \node[block] (dec) at (11.5,0) {Decoder};
+    \node (Y) at (12.95,0) {$Y$};
+    \draw[arrow] (X)--(enc); \draw[arrow] (enc)--(G0); \draw[arrow] (G0)--(p1);
+    \draw[arrow] (p1)--(G1);
+    \draw[arrow] (G0.north) |- (gn1.west); \draw[arrow] (gn1.east) -| (p1.north);
+    \draw[arrow] (GM1)--(pM); \draw[arrow] (pM)--(GM);
+    \draw[arrow] (GM1.north) |- (gnM.west); \draw[arrow] (gnM.east) -| (pM.north);
+    \draw[arrow] (GM)--(dec); \draw[arrow] (dec)--(Y);
+    \begin{scope}[on background layer]
+      \fill[black!6, rounded corners=3pt] (3.2,-0.45) rectangle (9.45,1.45);
+    \end{scope}
+    \node[font=\scriptsize\scshape] at (6.3,1.2) {Processor};
+  \end{tikzpicture}
+  \caption{Learned simulator $d_\theta$ (slide 66b): encoder, $M$ message-passing blocks
+  GN$^m$ with residual $\oplus$, decoder.}\label{fig:lec01-epd}
+\end{figure}
+
+\subsection{Application: weather forecasting}\label{sec:lec01-weather}
+\slides{67}
+
+\begin{itemize}
+  \item \textbf{GraphCast:} (a) input weather state $X^{\le t}$ $\to$ (b) GraphCast predicts
+    the next state $\hat X^{t+1}$ $\to$ (c) rolling out a forecast GC $\to\cdots\to$ GC
+    gives $\hat X^{t+T}$.
+  \item Inside: (d) encoder (grid $\to$ mesh), (e) processor, (f) decoder (mesh $\to$ grid);
+    (g) \textbf{simultaneous multi-mesh message passing} over meshes $M^0,\dots,M^6$
+    (refined icosahedra).
+  \item Linked article: GraphCast outperforms the world's best medium-range weather
+    forecasting.
+\end{itemize}
+
+% =====================================================================
+\par\vspace{0pt plus 6\baselineskip}\penalty-300\vspace{0pt plus -6\baselineskip}
+\section{Summary}\label{sec:lec01-summary}
+\slides{68}
+
+\textbf{ML in the language of graphs} (on the Users--Sales--Products graph,
+\cref{fig:lec01-rdl}):
+\begin{itemize}
+  \item \textbf{Node-level:} churn, life-time value, next best action.
+  \item \textbf{Link-level:} product affinity, recommendations.
+  \item \textbf{Graph-level:} fraud, money laundering.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\bigskip\phantomsection
+\addcontentsline{toc}{section}{Lecture 1 at a glance}
+\begin{summarybox}[Lecture 1 at a glance]
+  \begin{itemize}
+    \item Graphs = general language for entities with relations; databases are graphs
+      (RDL: rows = nodes, key links = edges). Explicitly modeling relationships
+      $\Rightarrow$ better performance.
+    \item DL toolbox is built for sequences \& grids; networks have arbitrary size/topology,
+      no fixed node ordering, are dynamic and multimodal $\Rightarrow$ graphs are the new
+      frontier of DL.
+    \item Representation: choose nodes and edges -- the choice of links fixes the questions
+      you can study. Heterogeneous graph $G=(V,E,R,T)$, edges $(v_i,r,v_j)$; directed vs.\
+      undirected; weights, properties, types, attributes; bipartite graphs and folded
+      networks.
+    \item Tasks: node level (classification; churn; AlphaFold 3D coordinates), link level
+      (rank non-linked pairs, top $K$; PinSage
+      $d(z_{\text{cake1}},z_{\text{cake2}})<d(z_{\text{cake1}},z_{\text{sweater}})$;
+      polypharmacy side effects), graph/subgraph level (ETA in Google Maps; antibiotic
+      graph classification; physics simulation as graph evolution; GraphCast weather forecasting).
+  \end{itemize}
+\end{summarybox}

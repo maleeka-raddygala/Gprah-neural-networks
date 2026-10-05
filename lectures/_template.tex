@@ -1,0 +1,73 @@
+% =====================================================================
+%  TEMPLATE -- copy to lectures/lecNN-short-name.tex and add
+%  \include{lectures/lecNN-short-name} to main.tex.
+%  (This file itself is NOT included in main.tex.)
+%
+%  STYLE: compact recall notes. Follow the slide order. Bullets with
+%  bold key terms, every formula from the slides, small figures only
+%  where the picture is the content. No textbook explanations; add a
+%  short line only where a slide is unclear on its own.
+% =====================================================================
+\lecture{NN}{Lecture Title}{Day, Month DD, 2026}\label{ch:lecNN}
+
+% One-line roadmap (the lecture's own outline slide)
+\textbf{Outline.} Topic A $\to$ topic B $\to$ topic C.
+
+% ---------------------------------------------------------------------
+\section{Section Title (a divider slide of the deck)}\label{sec:lecNN-a}
+\slides{3--9}
+
+\subsection{Sub-topic (a group of slides)}
+\slides{3--5}
+
+\begin{itemize}
+  \item \textbf{Problem:} softmax normaliser sums over all $|V|$ nodes
+    $\Rightarrow$ $\bigO(|V|^2)$ per epoch.
+  \item \textbf{Fix -- negative sampling:} normalise against $k$ random
+    \term{negative samples} $n_i\sim P_V$ instead of all nodes:
+\end{itemize}
+\begin{equation}\label{eq:lecNN-negsamp}
+  \log\frac{\exp(\vz_u\tp\vz_v)}{\sum_{n\in V}\exp(\vz_u\tp\vz_n)}
+  \approx \log\sigma(\vz_u\tp\vz_v)+\sum_{i=1}^{k}\log\sigma(-\vz_u\tp\vz_{n_i})
+\end{equation}
+\begin{itemize}
+  \item Sample negatives $\propto$ degree. $k$: higher $\Rightarrow$ more
+    robust, but more bias on negatives; in practice $k=5$--$20$.
+\end{itemize}
+
+\begin{definition}[Name]\label{def:lecNN-name}
+  Use only for the core formal definitions of the lecture.
+\end{definition}
+
+\begin{keyidea}
+  Only for a takeaway the slide itself highlights.
+\end{keyidea}
+
+\begin{example}
+  Only for small worked examples that are on the slides.
+\end{example}
+
+\begin{caution}
+  Slide erratum (one or two lines): what the slide says $\to$ correct version.
+\end{caution}
+
+% Small figure where the picture is the content
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.9]
+    \node[target] (a) at (0,0) {A};
+    \node[vertex] (b) at (1.4,0.6) {B};
+    \node[vertex] (c) at (1.4,-0.6) {C};
+    \draw[edge] (a) -- (b) (a) -- (c) (b) -- (c);
+  \end{tikzpicture}
+  \caption{Short caption (slide 4).}\label{fig:lecNN-example}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\bigskip\phantomsection
+\addcontentsline{toc}{section}{Lecture NN at a glance}
+\begin{summarybox}[Lecture NN at a glance]
+  \begin{itemize}
+    \item One line per main idea / the key formulas, nothing new.
+  \end{itemize}
+\end{summarybox}
