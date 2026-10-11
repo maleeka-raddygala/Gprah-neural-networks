@@ -1,51 +1,9 @@
 \lecture{1}{Introduction to Machine Learning with Graphs}{Tuesday, September 22, 2026}\label{ch:lec01}
 
-\textbf{Outline.} Course logistics $\to$ why graphs (graphs as a language, databases,
+\textbf{Outline.}  why graphs (graphs as a language, databases,
 why graph DL is hard) $\to$ choice of graph representation $\to$ applications: node-,
 link- and graph-level tasks.
 
-% =====================================================================
-\section{Course logistics}\label{sec:lec01-logistics}
-\slides{2--20}
-
-\begin{table}[htbp]
-  \centering\small
-  \begin{tabularx}{\linewidth}{@{}l l >{\raggedright\arraybackslash}X@{}}
-    \toprule
-    Component & Weight & Details \\
-    \midrule
-    Homework & 20\% & 3 written HWs, 6.67\% each; theory, algorithm design, math;
-      take longer ($\sim$10--20\,h) -- start early \\
-    Coding (Colabs) & 15\% & 5 Google Colabs, 3\% each; shorter ($\sim$3--5\,h); hands-on
-      coding/training of GNNs; Colab~0 not graded \\
-    Exam & 35\% & single exam, \textbf{Wed 11/18}; \textbf{in-person, closed-book, timed};
-      written questions similar to the homeworks \\
-    Course project & 30\% & proposal, milestone, final report; focus on real-world
-      applications of GNNs; groups of up to 3 (1--2 allowed but discouraged) \\
-    Extra credit & -- & Ed participation, PyG/GraphGym code contribution; used if on the
-      boundary between grades \\
-    \bottomrule
-  \end{tabularx}
-  \caption{Grading (slides 12--17).}\label{tab:lec01-grading}
-\end{table}
-
-\begin{itemize}
-  \item \textbf{Topics:} node embeddings (DeepWalk, Node2Vec); GNNs (GCN, GraphSAGE,
-    GAT, \ldots); graph transformers; knowledge graphs and reasoning (TransE); generative
-    models for graphs (GraphRNN); relational deep learning (databases); GNN + LLMs;
-    applications to biomedicine, science, technology.
-  \item \textbf{Prerequisites:} course is self-contained; no single topic is too hard, but
-    \emph{many} topics make it hard. Background in ML, algorithms and graph theory,
-    probability and statistics, linear algebra; non-trivial Python programs; PyTorch a plus.
-  \item \textbf{Tools:} \textbf{PyG} (PyTorch Geometric) -- ``the ultimate library for
-    GNNs''; \textbf{GraphGym} -- platform for designing GNNs (modularized implementation,
-    simple hyperparameter tuning, flexible customization) -- both very helpful for the
-    project; other: SNAP.PY, NetworkX.
-    Readings: \emph{Graph Representation Learning} book (Will Hamilton) + research papers.
-  \item \textbf{Submission:} Gradescope. 2 late periods (LP) per student, max 1 per
-    assignment; an LP gives 4 extra days (Thu 11:59pm $\to$ Mon 11:59pm); \textbf{no LP for
-    the final report}.
-\end{itemize}
 
 % =====================================================================
 \section{Why graphs?}\label{sec:lec01-why-graphs}

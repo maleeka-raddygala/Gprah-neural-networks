@@ -608,7 +608,7 @@ model; simple example for unsupervised and supervised training).
 
 \textbf{Basic approach:} average neighbour messages and apply a neural network.
 
-\begin{definition}[GCN deep encoder]\label{def:lec03-gcn}
+\begin{definition}[GCN deep encoder, GraphSAGE-style mean aggregation (Hamilton et al., 2017) ]\label{def:lec03-gcn}
   \begin{align}
     \vh_v^{(0)} &= \vx_v, \label{eq:lec03-gcn-init}\\
     \vh_v^{(k+1)} &= \sigma\Bigl(\mW_k\sum_{u\in\Nb(v)}\frac{\vh_u^{(k)}}{|\Nb(v)|}
@@ -710,7 +710,7 @@ Re-writing the update function \cref{eq:lec03-gcn-update} in matrix form:
 \begin{gather}
   \min_\Theta\ \Loss = \sum_{z_u,z_v}\mathrm{CE}\bigl(y_{u,v},\DEC(\vz_u,\vz_v)\bigr),
   \label{eq:lec03-unsupervised}\\
-  \mathrm{CE}\bigl(\vy,f(\vx)\bigr) = -\sum_{i=1}^{C} y_i\log f_\Theta(\vx)_i \label{eq:lec03-ce-unsup}
+  \mathrm{CE}\bigl(\vy,f(\vx)\bigr) = -\sum_{i=1}^{C} y_i\log f_\Theta(\vx)_i, \qquad C = \textbf{num classes, binary here} \label{eq:lec03-ce-unsup}
 \end{gather}
 \begin{itemize}
   \item $y_{u,v}=1$ when nodes $u$ and $v$ are \textbf{similar};
