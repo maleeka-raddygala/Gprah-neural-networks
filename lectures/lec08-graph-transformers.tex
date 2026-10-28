@@ -1,0 +1,728 @@
+\lecture{8}{Graph Transformers}{Thursday, October 15, 2026}\label{ch:lec08}
+
+% Local TikZ styles (prefix lec08)
+\tikzset{
+  lec08v/.style={circle, draw=ForestGreen!70!black, thick, fill=white,
+                 minimum size=4.6mm, inner sep=0pt, font=\scriptsize},
+  lec08tok/.style={draw=BrickRed!80!black, fill=BrickRed!22, rounded corners=1pt,
+                   minimum width=6.4mm, minimum height=4.6mm, inner sep=0pt,
+                   font=\scriptsize},
+  lec08pe/.style={lec08tok, draw=ForestGreen!75!black, fill=ForestGreen!22},
+  lec08out/.style={draw=ForestGreen!70!black, thick, rounded corners=1.5pt,
+                   minimum width=6.4mm, minimum height=4.6mm, inner sep=0pt,
+                   font=\scriptsize},
+  lec08tf/.style={draw=ForestGreen!70!black, thick, rounded corners=4pt,
+                  align=center, font=\small},
+  lec08lbl/.style={font=\scriptsize\sffamily},
+  lec08n/.style={circle, draw=black!60, thick, minimum size=4.2mm, inner sep=0pt,
+                 font=\tiny\sffamily\bfseries},
+  lec08s/.style={circle, draw=black!75, thick, fill=white, minimum size=5.2mm,
+                 inner sep=0pt, font=\scriptsize},
+  lec08val/.style={font=\tiny\bfseries, inner sep=1pt},
+  lec08A/.style={text=BrickRed, font=\scriptsize\sffamily},
+  lec08B/.style={text=RoyalBlue, font=\scriptsize\sffamily},
+  % the 6-node graph A--F with one scalar sample per node (slides 82--87)
+  pics/lec08g/.style n args={6}{code={
+    \node[lec08n, fill=Goldenrod!70]      (-A) at (0,0.55)    {A};
+    \node[lec08n, fill=BrickRed!60]       (-B) at (0.95,1.05) {B};
+    \node[lec08n, fill=ForestGreen!50]    (-C) at (1.2,0.45)  {C};
+    \node[lec08n, fill=RoyalBlue!45]      (-D) at (-0.25,-0.3) {D};
+    \node[lec08n, fill=Orchid!60]         (-E) at (0.65,-0.55) {E};
+    \node[lec08n, fill=WildStrawberry!45] (-F) at (1.45,-0.1) {F};
+    \draw[black!60] (-A)--(-B) (-A)--(-C) (-A)--(-D) (-B)--(-C) (-C)--(-E)
+      (-C)--(-F) (-E)--(-F);
+    \node[lec08val, anchor=south east] at (-A.north west) {#1};
+    \node[lec08val, anchor=west] at (-B.east) {#2};
+    \node[lec08val, anchor=south west] at (-C.north east) {#3};
+    \node[lec08val, anchor=east] at (-D.west) {#4};
+    \node[lec08val, anchor=north west] at (-E.south east) {#5};
+    \node[lec08val, anchor=west] at (-F.east) {#6};
+  }},
+}
+
+\textbf{Outline.} Part~1: introducing Transformers $\to$ relation to
+message-passing GNNs (self-attention = message passing on the fully connected
+graph) $\to$ Part~2: a new design landscape for graph Transformers
+(tokenization, positional encoding, modified self-attention) $\to$ Part~3:
+powerful positional encodings (sign ambiguity) and PEARL, learning efficient
+positional encodings with GNNs.
+
+% ---------------------------------------------------------------------
+\section{Motivation}\label{sec:lec08-intro}
+
+\subsection{Recap: a general GNN framework}\label{sec:lec08-recap}
+\slides{3--4}
+
+\begin{itemize}
+  \item \textbf{GNN design space} [You, Ying, Leskovec, NeurIPS 2020]
+    (\cref{ch:lec04}, \cref{fig:lec04-framework}): (1) message, (2) aggregation,
+    (3) layer connectivity, (4) graph augmentation, (5) learning objective.
+  \item We know a lot about the design space of GNNs. \textbf{What does the
+    corresponding design space for Graph Transformers look like?} (Answer:
+    \cref{sec:lec08-summary-ds}.)
+\end{itemize}
+
+\subsection{Intro to Transformers: the goal}\label{sec:lec08-goal}
+\slides{5--8}
+
+\begin{itemize}
+  \item \textbf{The backbone of generative AI} (slide shows an LLM's answer to
+    ``what is a transformer?''): a deep learning model that revolutionized NLP
+    and beyond, introduced in \emph{Attention Is All You Need} (Vaswani et al.,
+    2017). Key components:
+    \begin{itemize}
+      \item \textbf{Self-attention:} weigh the importance of different parts of
+        the input sequence; unlike recurrent models (e.g.\ LSTMs), processes the
+        entire input at once; each word (token) attends to all other words.
+      \item \textbf{Encoder-decoder:} encoder $\to$ contextualized
+        representation; decoder uses it + previously generated tokens to predict
+        the next token. BERT uses just the encoder, GPT just the decoder.
+      \item \textbf{Positional encoding:} Transformers don't inherently
+        understand token order (unlike RNNs) $\Rightarrow$ positional encodings
+        added to the input embeddings.
+      \item \textbf{Multi-head attention} (each head focuses on different aspects
+        of the relationships between tokens) and \textbf{feed-forward networks}
+        after the attention step.
+      \item Applications: language models (BERT, GPT, T5), vision (Vision
+        Transformers, ViTs), graphs (graph representation learning).
+    \end{itemize}
+  \item \textbf{Goal: bring power of Transformers to graphs:} small molecules,
+    knowledge graphs, code graphs, communication networks. \textbf{There is lots
+    of multi-billion node/graph scale data to learn from.}
+  \item \textbf{Plan} (slide~8): see the Outline.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Transformers}\label{sec:lec08-tf}
+
+\subsection{Transformers ingest tokens}\label{sec:lec08-tokens}
+\slides{9--12}
+
+\begin{itemize}
+  \item \textbf{Transformers map 1D sequences of vectors to 1D sequences of
+    vectors} known as \term{tokens}; e.g.\ $x_1,\dots,x_8$ = ``The cat sat on
+    the mat and sang'' $\to$ Transformer $\to$ 8 output vectors.
+  \item \textbf{Tokens describe a ``piece'' of data} -- e.g.\ a word.
+  \item \textbf{What output sequence?}
+    \begin{itemize}
+      \item \textbf{Option 1: next token $\Rightarrow$ GPT} (output at position
+        $i$ = token $x_{i+1}$: ``cat sat on the mat and sang'', then the next
+        token).
+      \item \textbf{Option 2: pool} (e.g.\ sum-pool) the outputs to get a
+        \textbf{sequence-level embedding} (e.g.\ for a classification task:
+        predict ``kids story'').
+    \end{itemize}
+\end{itemize}
+
+\subsection{Transformer blueprint and self-attention}\label{sec:lec08-selfattn}
+\slides{13--18}
+
+\begin{itemize}
+  \item \textbf{How are tokens processed?} Lots of components: normalization,
+    feed forward networks, positional encoding (more later,
+    \cref{sec:lec08-order}), \textbf{multi-head self-attention}. (Blueprint:
+    input embedding + positional encoding $\to$ $N\times$[multi-head attention,
+    add \& norm, feed forward, add \& norm]; decoder adds masked multi-head
+    attention; linear $\to$ softmax $\to$ output probabilities.)
+  \item \textbf{What does the self-attention block do?} First ``single head''
+    self-attention (Illustrated Transformer tutorial): in encoder \#1, $x_1$
+    (``Thinking''), $x_2$ (``Machines'') $\to$ self-attention $\to$ $z_1,z_2$
+    $\to$ feed forward NN (per token) $\to$ $r_1,r_2$ $\to$ encoder \#2.
+  \item \textbf{Step 1:} compute ``key, value, query'' for each input:
+    $q_i,k_i,v_i$ from embedding $x_i$ with the \textbf{model parameters}
+    $W^Q,W^K,W^V$.
+  \item \textbf{Step 2 (just for $x_1$):} compute scores between pairs, turn
+    into probabilities (same for $x_2$): score $q_1\cdot k_j$, divide by
+    $\sqrt{d_k}$, softmax (\cref{tab:lec08-attn}).
+  \item \textbf{Step 3:} get new embedding $z_1$ by weighted sum of $v_1,v_2$:
+    $z_1 = 0.88\,v_1+0.12\,v_2$.
+  \item \textbf{Same calculation in matrix form} (rows of $X$ = tokens):
+\end{itemize}
+\begin{equation}\label{eq:lec08-attn}
+  \underbrace{Q = XW^Q,\quad K = XW^K,\quad V = XW^V}_{\text{Step 1}}
+  \qquad\quad
+  Z = \underbrace{\softmax\Big(\frac{QK\tp}{\sqrt{d_k}}\Big)}_{\text{Step 2}}V
+  \quad(\text{Step 3})
+\end{equation}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{Single-head self-attention for $x_1$ over the inputs ``Thinking
+  Machines'' (slides~16--17).}
+  \label{tab:lec08-attn}
+  \begin{tabular}{@{}lcc@{}}
+    \toprule
+    & Thinking ($x_1$) & Machines ($x_2$)\\
+    \midrule
+    Score & $q_1\cdot k_1 = 112$ & $q_1\cdot k_2 = 96$\\
+    Divide by 8 ($\sqrt{d_k}$) & 14 & 12\\
+    Softmax & 0.88 & 0.12\\
+    Softmax $\times$ value & $0.88\,v_1$ & $0.12\,v_2$\\
+    \midrule
+    Sum & \multicolumn{2}{c}{$z_1 = 0.88\,v_1 + 0.12\,v_2$}\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{caution}
+  Slide~16 also labels the divisor 8 ``(num heads)''; correct: it is
+  $\sqrt{d_k}$ (square root of the key dimension), as on slides~17--18.
+\end{caution}
+
+\subsection{Multi-head self-attention}\label{sec:lec08-multihead}
+\slides{19}
+
+\begin{itemize}
+  \item \textbf{Do many self-attentions in parallel, and combine.} Different
+    heads can learn different ``similarities'' between inputs.
+  \item \textbf{Each has own set of parameters:} head $h=0,\dots,7$ has
+    $W_h^Q,W_h^K,W_h^V$ $\to$ $Q_h,K_h,V_h$ $\to$ $Z_h$. Combine: concatenate
+    $Z_0,\dots,Z_7$ and multiply by $W^O$:
+\end{itemize}
+\begin{equation}\label{eq:lec08-multihead}
+  Z = \CONCAT\big(Z_0, Z_1,\dots,Z_7\big)\,W^O
+\end{equation}
+\begin{itemize}
+  \item In all encoders other than \#0, we don't need embedding: we start
+    directly with the output $R$ of the encoder right below.
+\end{itemize}
+
+\subsection{Comparing Transformers and GNNs}\label{sec:lec08-compare}
+\slides{20--21}
+
+\begin{itemize}
+  \item \textbf{Similarity:} GNNs also take in a sequence of vectors (in no
+    particular order) and output a sequence of embeddings (node features
+    $x_1,x_2,x_3$ of a triangle $\to$ GNN $\to$ node embeddings $z_1,z_2,z_3$).
+  \item \textbf{Difference:} GNNs use \textbf{message passing}, Transformer uses
+    \textbf{self-attention}.
+  \item \textbf{Are self-attention and message passing really different?}
+    (Message-passing computational graph vs.\ $\softmax(QK\tp/\sqrt{d_k})V$.)
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Self-attention vs.\ message passing}\label{sec:lec08-mp}
+
+\subsection{Interpreting the self-attention update}\label{sec:lec08-interp}
+\slides{22--26}
+
+\begin{itemize}
+  \item \textbf{Recall formula for attention update} (inputs stored row-wise,
+    $X=[\,\text{---}\ x_i\ \text{---}\,]$):
+\end{itemize}
+\begin{equation}\label{eq:lec08-att}
+  Att(X) = \softmax(QK\tp)V,\qquad Q = XW^Q,\ K = XW^K,\ V = XW^V
+\end{equation}
+\begin{itemize}
+  \item This formula gives the embedding for \textbf{all tokens} simultaneously
+    ($z_1,\dots,z_5$ from $x_1,\dots,x_5$).
+  \item \textbf{If we simplify to just token $x_1$}, what does the update look
+    like? How to interpret this?
+\end{itemize}
+\begin{equation}\label{eq:lec08-z1}
+  z_1 = \sum_{j=1}^{5}\softmax_j\big(q_1\tp k_j\big)\,v_j
+\end{equation}
+\begin{itemize}
+  \item \textbf{Steps for computing new embedding for token 1:}
+\end{itemize}
+\begin{align}
+  &\text{1. Compute message from $j$:} && (v_j,\ k_j) = \MSG(x_j) = (W^V x_j,\ W^K x_j)
+    \label{eq:lec08-msg}\\
+  &\text{2. Compute query for 1:} && q_1 = \MSG(x_1) = W^Q x_1 \label{eq:lec08-query}\\
+  &\text{3. Aggregate all messages:} && \mathrm{Agg}\big(q_1,\{\MSG(x_j): j\}\big)
+    = \sum_{j=1}^{n}\softmax_j\big(q_1\tp k_j\big)\,v_j \label{eq:lec08-agg}
+\end{align}
+
+\subsection{Self-attention as message passing}\label{sec:lec08-samp}
+\slides{27--28}
+
+\begin{itemize}
+  \item \textbf{Takeaway: self-attention can be written as message +
+    aggregation -- i.e., it is a GNN!}
+  \item But so far there is no graph -- just tokens. \textbf{So what graph is
+    this a GNN on?} Clearly tokens = nodes, but what are the edges?
+  \item \textbf{Key observation:} token 1 depends on (receives ``messages''
+    from) all other tokens $\Rightarrow$ \textbf{the graph is fully connected!}
+    (slide: complete graph on 5 nodes).
+  \item \textbf{Alternatively:} if you only sum over $j\in N(i)$ you get
+    $\sim$GAT (\cref{sec:lec04-gat}).
+\end{itemize}
+\begin{keyidea}[Self-attention as message passing]
+  \textbf{Takeaway 1:} self-attention is a special case of message passing.\\
+  \textbf{Takeaway 2:} it is message passing on the \textbf{fully connected
+  graph}.\\
+  \textbf{Takeaway 3:} given a graph $G$, if you constrain the self-attention
+  softmax to only be over $j$ \textbf{adjacent to $i$} nodes, you get
+  $\sim$\textbf{GAT}!
+\end{keyidea}
+
+% ---------------------------------------------------------------------
+\section{A new design landscape for graph Transformers}\label{sec:lec08-design}
+
+\subsection{Processing graphs with Transformers}\label{sec:lec08-process}
+\slides{29--33}
+
+\begin{itemize}
+  \item Slide~31 repeats slide~4 (GNN design space vs.\ graph Transformer design
+    space ``?'').
+  \item \textbf{We start with graph(s)} (nodes with feature vectors). \textbf{How
+    to input a graph into a Transformer?}
+  \item To understand how to process graphs with Transformers we must:
+    \begin{itemize}
+      \item Understand the key components of the Transformer. Seen already:
+        1) \textbf{tokenizing} (input tokens), 2) \textbf{self-attention}
+        (attention module).
+      \item Decide how to make suitable \textbf{graph versions} of each.
+    \end{itemize}
+\end{itemize}
+
+\subsection{A final key piece: token ordering}\label{sec:lec08-order}
+\slides{34--38}
+
+\begin{itemize}
+  \item There is one other key missing piece. Recall the update formula
+    \cref{eq:lec08-z1}. \textbf{Key observation: order of tokens does not
+    matter!!!}
+  \item Swap tokens 1 and 2 (``cat The sat on the mat and sang''): \textbf{outputs
+    swap} ($z_2,z_1,z_3,\dots,z_8$), \textbf{but do not otherwise change}.
+  \item \textbf{This is a problem:} \textbf{same predictions} no matter what
+    order the words are in (sum pool $\Rightarrow$ identical outputs). A ``bag
+    of words'' prediction model. How to fix?
+  \item \term{Positional encodings}: Transformer doesn't know order of inputs
+    $\Rightarrow$ extra \textbf{positional} features needed so it knows that
+    Je = word 1, suis = word 2, etc. (embedding $x_i$ + positional encoding
+    $t_i$ = embedding with time signal $\to$ encoder \#0).
+  \item For NLP, positional encoding vectors are \textbf{learnable parameters}.
+\end{itemize}
+
+\subsection{Graph inputs vs.\ Transformer components}\label{sec:lec08-match}
+\slides{39--42}
+
+\begin{itemize}
+  \item \textbf{Key components of Transformer:} (1) tokenizing, (2) positional
+    encoding (added to each token: $x_i$ + PE), (3) self-attention. \textbf{How
+    to choose these for graph data? Key question:} what should these be for a
+    graph input?
+  \item \textbf{A graph Transformer must take the following inputs:} (1) node
+    features? (2) adjacency information? (3) edge features?
+  \item There are many ways to do this. Different approaches correspond to
+    different \textbf{``matchings''} between graph inputs (1), (2), (3) and
+    transformer components (1), (2), (3).
+  \item \textbf{Today:} (1) node features $\leftrightarrow$ (1) tokenizing;
+    (2) adjacency information $\leftrightarrow$ (2) positional encoding;
+    (3) edge features $\leftrightarrow$ (3) self-attention
+    (\cref{tab:lec08-design}).
+\end{itemize}
+
+\subsection{Nodes as tokens; adding back adjacency info}\label{sec:lec08-nodes}
+\slides{43--46}
+
+\begin{itemize}
+  \item \textbf{Q1: what should our tokens be? Sensible idea: node features =
+    input tokens.} This matches the setting for the ``attention is message
+    passing on the fully connected graph'' observation.
+  \item \textbf{Problem? We completely lose adjacency info!} How to also inject
+    adjacency information?
+  \item \textbf{Idea:} encode adjacency info in the \textbf{positional
+    encoding} for each node. Positional encoding describes \textbf{where} a node
+    is in the graph (\cref{fig:lec08-design}).
+  \item \textbf{Q2: How to design a good positional encoding?}
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    % input graph
+    \node[lec08v] (g1) at (0,1.15) {1};
+    \node[lec08v] (g2) at (1.4,1.45) {2};
+    \node[lec08v] (g3) at (1.1,0.55) {3};
+    \node[lec08v] (g4) at (2.3,0.65) {4};
+    \node[lec08v] (g5) at (0,-0.1) {5};
+    \draw[edge] (g1)--(g2) (g1)--(g5) (g2)--(g3) (g2)--(g4) (g3)--(g4) (g3)--(g5);
+    \node[lec08lbl] at (1.15,-0.7) {input graph};
+    \draw[arrow, ForestGreen!70!black] (2.8,0.6) -- (3.7,0.6);
+    % tokens + PE + transformer + outputs
+    \foreach \i in {1,...,5} {
+      \pgfmathsetmacro{\x}{3.9+0.95*\i}
+      \node[lec08tok] at (\x,-0.15) {$x_{\i}$};
+      \node[font=\scriptsize] at (\x,0.3) {$+$};
+      \node[lec08pe] at (\x,0.75) {PE$_{\i}$};
+      \node[lec08out] at (\x,2.6) {$z_{\i}$};
+    }
+    \node[lec08tf, minimum width=4.0cm, minimum height=1.05cm] at (6.75,1.65)
+      {Transformer\\[-1pt]{\scriptsize\color{RoyalBlue}(3) modified attention}};
+    \node[lec08lbl, anchor=west, text=ForestGreen!60!black] at (9.3,0.75)
+      {(2) positional encoding};
+    \node[lec08lbl, anchor=west, text=BrickRed] at (9.3,-0.15)
+      {(1) input tokens = node features};
+    \node[lec08lbl, anchor=west, text=SkyBlue!60!black] at (9.3,2.6) {output};
+  \end{tikzpicture}
+  \caption{Graph Transformer: node features as tokens, adjacency injected via
+  positional encodings, edge features via modified attention (slides~45, 60).}
+  \label{fig:lec08-design}
+\end{figure}
+
+\subsection{Option 1: relative distances}\label{sec:lec08-reldist}
+\slides{47--48}
+
+\begin{itemize}
+  \item \textbf{Last lecture:} positional encoding based on \textbf{relative
+    distances} to anchors / anchor-sets (repeat of \cref{sec:lec07-anchors,sec:lec07-pe};
+    same example and table in \cref{fig:lec07-pos}: PE of $v_1$ $=(1,2,1)$, of
+    $v_3$ $=(1,2,0)$; anchors $s_1,s_2$ cannot differentiate $v_1,v_3$, but
+    anchor-set $s_3$ can).
+  \item New: similar methods based on \textbf{random walks}. \textbf{This is a
+    good idea!} It works well in many cases; especially strong for tasks that
+    require \textbf{counting cycles}.
+  \item Relative distances useful for \textbf{position-aware} tasks, \textbf{but
+    not suited to structure-aware tasks} (the two labelings of
+    \cref{fig:lec07-pos}a,b).
+\end{itemize}
+
+\subsection{Option 2: Laplacian eigenvector positional encodings}\label{sec:lec08-lappe}
+\slides{49--54}
+
+\begin{itemize}
+  \item \textbf{What other ways to make positional encoding?} Draw on knowledge
+    of \textbf{graph theory} (many useful and powerful tools).
+  \item Slides~50--52, 54 repeat \cref{sec:lec07-eigfeat}: \textbf{Laplacian
+    $L$ = Degrees $-$ Adjacency} (path example \cref{eq:lec07-lap}); eigenvectors
+    inherit the graph structure (small eigenvalue = global structure, large =
+    local symmetries); eigenvector $v$ with $Lv=\lambda v$; \textbf{steps:}
+    compute $k$ eigenvectors ($k=3$), stack into an $n\times k$ matrix, \textbf{$i$th
+    row = positional encoding for node $i$}; cycle-detection results
+    (\cref{tab:lec07-pe}: PE helps GIN and GatedGCN at every training size).
+  \item New here: eigenvectors are vectors (!) and so \textbf{can be fed into a
+    Transformer}: row $i$ is added to node features $x_i$ as the (2) positional
+    encoding (\cref{fig:lec08-sign}a).
+  \item Laplacian eigenvector positional encodings \textbf{can also be used with
+    message-passing GNNs}: this helps for same reasons as structural and
+    relative-distance based positional encodings in previous lecture.
+\end{itemize}
+
+\subsection{Edge features in self-attention}\label{sec:lec08-edge}
+\slides{55--59}
+
+\begin{itemize}
+  \item \textbf{So far:} (1) node features $\leftrightarrow$ tokenizing,
+    (2) adjacency $\leftrightarrow$ positional encoding. \textbf{Left to do:}
+    (3) edge features $\leftrightarrow$ self-attention.
+  \item Not clear how to add edge features in the tokens or positional
+    encoding. \textbf{How about in the attention?} $Att(X)=\softmax(QK\tp)V$.
+  \item $[a_{ij}] = QK\tp$ is an $n\times n$ matrix. Entry $a_{ij}$ describes
+    ``how much'' token $j$ contributes to the update of token $i$.
+  \item \textbf{Idea: adjust $a_{ij}$ based on edge features. Replace with
+    $a_{ij}+c_{ij}$ where $c_{ij}$ depends on the edge features} [Ying et al.,
+    \emph{Do Transformers Really Perform Bad for Graph Representation?},
+    NeurIPS 2021].
+  \item \textbf{Implementation:}
+    \begin{itemize}
+      \item If there is an edge between $i$ and $j$ with features $e_{ij}$,
+        define (learned parameters $w_1$)
+        \begin{equation}\label{eq:lec08-cedge}
+          c_{ij} = w_1^T e_{ij}
+        \end{equation}
+      \item If there is no edge, find shortest edge path between $i$ and $j$,
+        $(e^1, e^2,\dots,e^N)$, and define (learned parameters
+        $w_1,\dots,w_N$)
+        \begin{equation}\label{eq:lec08-cpath}
+          c_{ij} = \sum_n w_n^T e^n
+        \end{equation}
+    \end{itemize}
+\end{itemize}
+
+\subsection{Summary: graph Transformer design space}\label{sec:lec08-summary-ds}
+\slides{60--61}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{Graph Transformer design space (slides~42, 60--61).}
+  \label{tab:lec08-design}
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.0cm}>{\raggedright\arraybackslash}p{3.3cm}>{\raggedright\arraybackslash}X@{}}
+    \toprule
+    Transformer component & Graph input it carries & Choices\\
+    \midrule
+    (1) Tokenization & (1) node features & usually node features; other options,
+      such as subgraphs, and node + edge features (not discussed today)\\
+    (2) Positional encoding & (2) adjacency information & relative distances, or
+      Laplacian eigenvectors; gives Transformer adjacency structure of graph\\
+    (3) Modified attention & (3) edge features & reweight attention using edge
+      features ($a_{ij}+c_{ij}$)\\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+\begin{itemize}
+  \item \textbf{GNN design space} ((1) message, (2) aggregation, (3) layer
+    connectivity, (4) graph augmentation, (5) learning objective) vs.\
+    \textbf{graph Transformer design space} ((1) input tokens, (2) positional
+    encoding, (3) modified attention), \cref{fig:lec08-design}.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Powerful positional encodings for graph Transformers}\label{sec:lec08-ppe}
+
+\subsection{Eigenvector sign ambiguity}\label{sec:lec08-sign}
+\slides{62--69}
+
+\begin{itemize}
+  \item Slide~64 recalls Laplacian eigenvector PEs (slide~53).
+  \item \textbf{Laplacian eigenvector positional encodings work! But is this the
+    best we can do?} Hint: no.
+  \item \textbf{Q: What is the problem with the current approach?} A1:
+    eigenvectors are \textbf{not} arbitrary vectors. A2: they have
+    \textbf{special structure} that we have been ignoring!
+    $\Rightarrow$ \textbf{To use eigenvectors properly we must account for their
+    structure in our models.}
+  \item \term{Eigenvector sign ambiguity}: suppose $v$ is a Laplacian
+    eigenvector, so $Lv=\lambda v$. But this means also
+\end{itemize}
+\begin{equation}\label{eq:lec08-sign}
+  L(-v) = \lambda(-v)
+\end{equation}
+\begin{itemize}
+  \item[] $\Rightarrow$ $-v$ is also a Laplacian eigenvector. \textbf{The choice
+    of sign is arbitrary!} (Slide: $v_i$ and $-v_i$ on the same line.)
+  \item \textbf{Sign ambiguity is a problem:} both $v$ and $-v$ are
+    eigenvectors, but when we use them as positional encodings we \textbf{pick
+    one arbitrarily}. Why does this matter? What if we picked the other sign
+    (e.g.\ $-v_1$ instead of $v_1$ in $[v_1,v_2,v_3]$)?
+    \begin{itemize}
+      \item Then the input PE changes $\Rightarrow$ \textbf{the model's
+        predictions will change!}
+      \item For $k$ eigenvectors there are $2^k$ sign choices $\Rightarrow$
+        $2^k$ \textbf{different predictions for the same input graph!}
+        (\cref{fig:lec08-sign}b)
+    \end{itemize}
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    \foreach \dx/\hd/\cf/\pf/\lab in
+        {0/{$v_1$}/Goldenrod!70/Goldenrod!70/{(a) row $i$ = PE of node $i$},
+         5.4/{\textcolor{BrickRed}{$-v_1$}}/WildStrawberry!60/WildStrawberry!35/{(b) other sign: $-v_1$}} {
+      \begin{scope}[shift={(\dx,0)}]
+        \fill[Goldenrod!70] (0,-0.8) rectangle (1.8,-1.2);
+        \fill[\cf] (0,-0.8) rectangle (0.6,-1.2);
+        \draw[black!70] (0,-1.6) grid[xstep=0.6, ystep=0.4] (1.8,0);
+        \node[font=\scriptsize] at (0.3,0.22) {\hd};
+        \node[font=\scriptsize] at (0.9,0.22) {$v_2$};
+        \node[font=\scriptsize] at (1.5,0.22) {$v_3$};
+        \draw[black!60, {Stealth[length=1.2mm]}-{Stealth[length=1.2mm]}]
+          (-0.15,0) -- (-0.15,-1.6);
+        \node[lec08lbl, anchor=east, align=center] at (-0.2,-0.8) {$n$\\nodes};
+        \node[lec08lbl, anchor=south] at (0.9,0.4) {$k=3$};
+        \node[lec08tok, draw=black!60, fill=\pf] (pe) at (3.15,-0.45) {\tiny PE$_i$};
+        \node[font=\scriptsize] at (3.15,-0.9) {$+$};
+        \node[lec08tok] at (3.15,-1.35) {$x_i$};
+        \draw[arrow] (1.85,-1.0) -- (pe.west);
+        \node[lec08lbl] at (1.5,-2.0) {\lab};
+      \end{scope}
+    }
+  \end{tikzpicture}
+  \caption{Laplacian eigenvector PE: the $i$th row of the $n\times k$ eigenvector
+  matrix is added to node features $x_i$ (a); picking $-v_1$ instead changes the
+  input PE and hence the prediction, $2^k$ sign choices (b) (slides~52, 67--69).}
+  \label{fig:lec08-sign}
+\end{figure}
+
+\subsection{How to fix sign ambiguity}\label{sec:lec08-fix}
+\slides{70--72}
+
+\begin{itemize}
+  \item \textbf{Simple idea:} randomly flip the signs of eigenvectors during
+    training, i.e.\ \textbf{data augmentation}; model will learn to not use the
+    sign information. \textbf{Issue:} exponentially many sign choices is very
+    difficult to learn.
+  \item \textbf{Better idea:} build a neural network that is \textbf{invariant}
+    to sign choices! Since it is invariant, the predictions will no longer
+    depend on the sign choice [Lim, Robinson et al., \emph{Sign and Basis
+    Invariant Networks for Spectral Graph Representation Learning}].
+  \item \textbf{Q: What is the problem with this approach?} A1: computing
+    eigenvectors has \textbf{cubic complexity}. A2: storing them needs
+    \textbf{quadratic space}! \textbf{Can we do something better?}
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{PEARL: learning efficient PEs with GNNs}\label{sec:lec08-pearl}
+
+\subsection{GNNs are nonlinear functions of eigenvectors}\label{sec:lec08-gnneig}
+\slides{73--75}
+
+[C.\ Kanatsoulis, E.\ Choi et al., \emph{Learning Efficient Positional Encodings
+with Graph Neural Networks}, ICLR 2025.]
+\begin{itemize}
+  \item Slide~74 repeats \cref{sec:lec07-matrix,sec:lec07-eig}: GIN update
+    \cref{eq:lec07-gin} with a single-layer MLP, in matrix form
+    $\vect{C}^{(l+1)}=\sigma\big(\sum_{k=0}^{1}\mA^k\vect{C}^{(l)}\mW_k^{(l)}\big)
+    =\sigma\big(\sum_{k=0}^{1}\vect{V}\bm{\Lambda}^k\vect{V}\tp\vect{C}^{(l)}\mW_k^{(l)}\big)$
+    with $\mA=\vect{V}\bm{\Lambda}\vect{V}\tp$ (\cref{eq:lec07-ginspec}); slide
+    highlights $\vect{V}\tp\vect{C}^{(l)}$.
+  \item New (slide~75): \textbf{GNNs are nonlinear functions of eigenvectors}.
+    Per node $v$ and feature $f$, with $\vect{C}^{(l)}\in\R^{N\times d}$,
+    $\vect{C}^{(l)}[v,:]=\vect{c}_v^{(l)}$:
+\end{itemize}
+\begin{equation}\label{eq:lec08-ginfeat}
+  \vect{c}_v^{(l+1)}[f] = \sigma\Big(\sum_{n=1}^{N} w[n,f]\,\vect{v}_n\Big)[v],
+  \qquad
+  w[n,f] = \sum_{i=1}^{d}\sum_{k=0}^{1}\lambda_n^k\,\mW_k[i,f]\,
+    \big\langle\vect{v}_n,\vect{C}^{(l)}[:,i]\big\rangle
+\end{equation}
+
+\subsection{Limitation of the WL kernel; node IDs}\label{sec:lec08-wl}
+\slides{76--79}
+
+\begin{itemize}
+  \item Slide~76 repeats \cref{sec:lec07-failures} ($\mathcal{G}$ vs.\
+    $\hat{\mathcal{G}}$, \cref{fig:lec07-wlsym}): the WL kernel colors
+    \textbf{inherit the graph symmetries}; \textbf{symmetric colors} are associated
+    with limitations involving the \textbf{spectral decomposition of the graph}.
+  \item \textbf{Can we break these symmetries? Standard approach: assign unique
+    IDs to nodes}, converted into one-hot vectors (repeat of
+    \cref{sec:lec05-feat}: ID $=5$ $\to$ $[0,0,0,0,1,0]$, total number of IDs
+    $=6$).
+  \item Slides~78--79 repeat the \textbf{naive solution: one-hot encoding}
+    (\cref{sec:lec07-naive}; triangle $v_1$ vs.\ square $v_2$ get different
+    computational graphs). \textbf{Issues:} \textbf{not scalable} ($\bigO(N)$
+    feature dimensions, $N$ = number of nodes); \textbf{not inductive} (cannot
+    generalize to new nodes/graphs).
+\end{itemize}
+
+\subsection{PEARL positional encodings}\label{sec:lec08-pearlpe}
+\slides{80--87}
+
+\begin{itemize}
+  \item \textbf{Can we learn powerful PEs with GNNs only? Assign unique IDs to
+    nodes:} these IDs are represented by \textbf{random samples}; \textbf{each node
+    will be represented by a different set of random variables}. Ex.: random
+    samples for node 3 ($C$): $[0.2, 1.5, -2.3, -10.1]$; total number of random
+    samples $=4$.
+  \item \textbf{Independent processing of samples} (graph $A$--$F$, edges
+    $A$--$B$, $A$--$C$, $A$--$D$, $B$--$C$, $C$--$E$, $C$--$F$, $E$--$F$; slide~84
+    renames $A,\dots,F$ to nodes 1--6):
+    \begin{itemize}
+      \item[] \begin{tabular}{@{}ll@{}}
+        Node A $[3.3, -1.7, -1.2, -0.1]$ & Node B $[-0.1, -5.4, 3.0, -9.8]$\\
+        Node C $[0.2, 1.5, -2.3, -10.1]$ & Node D $[0.5, 1.9, -12.7, 11.1]$\\
+        Node E $[5.1, -0.7, -2.9, -13.5]$ & Node F $[-1.2, 7.5, -0.3, -7.9]$
+      \end{tabular}
+      \item Sample $m$ = the $m$th entry of every node's vector (one scalar per
+        node) $\to$ GNN $\to$ $\vy^{(m)}$; each sample processed independently.
+        Sample 1 ($A$ 3.3, $B$ $-0.1$, $C$ 0.2, $D$ 0.5, $E$ 5.1, $F$ $-1.2$) $\to$
+        $\vy^{(1)}$; sample 2 ($-1.7, -5.4, 1.5, 1.9, -0.7, 7.5$) $\to$
+        $\vy^{(2)}$; \dots; sample 4 $\to$ $\vy^{(4)}$ (\cref{fig:lec08-pearl}).
+    \end{itemize}
+  \item \textbf{An approximate analogy:} sample one person per state (US map =
+    input graph) $\to$ set of questions $\to$ $\vy^{(1)},\dots,\vy^{(4)}$; the
+    answers summarized per state (map of per-state bar charts, PW 1--3).
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    \pic (s1) at (0,1.6) {lec08g={3.3}{-0.1}{0.2}{0.5}{5.1}{-1.2}};
+    \pic (s4) at (0,-1.5) {lec08g={-0.1}{-9.8}{-10.1}{11.1}{-13.5}{-7.9}};
+    \node[lec08lbl] at (0.3,0.3) {sample $m=1$};
+    \node[lec08lbl] at (0.3,-2.8) {sample $m=4$};
+    \foreach \y/\m in {1.85/1, -1.25/4} {
+      \draw[arrow, BrickRed] (2.3,\y) -- (3.0,\y);
+      \node[block, minimum width=1.4cm, text=blue] (gnn\m) at (3.85,\y) {GNN};
+      \draw[arrow, ForestGreen!70!black] (4.7,\y) -- (5.3,\y);
+      \node (y\m) at (5.75,\y) {$\vy^{(\m)}$};
+    }
+    \node at (3.85,0.3) {$\vdots$};
+    \node at (5.75,0.3) {$\vdots$};
+    % summarize
+    \node[block, fill=red!8, minimum height=8mm] (rho) at (7.6,0.3) {$\rho[\cdot]$};
+    \draw[arrow] (y1.east) -- (rho.north west);
+    \draw[arrow] (y4.east) -- (rho.south west);
+    \node (P) at (9.45,0.3) {$\mP$};
+    \draw[arrow] (rho) -- (P);
+    \node[block, fill=black!15, minimum height=1.5cm, align=center] (main)
+      at (11.4,0.3) {GNN\\or\\Transformer};
+    \draw[arrow] (P) -- (main.west |- P);
+    \node (X) at (11.4,2.15) {node features $\mX$};
+    \draw[arrow] (X) -- (main);
+    \node (Y) at (13.7,0.3) {$\mY$};
+    \draw[arrow] (main) -- (Y);
+  \end{tikzpicture}
+  \caption{PEARL: each set of random node samples is processed independently by
+  a GNN; the outputs are summarized by the empirical expectation and passed,
+  with the node features, to the main GNN/Transformer (slides~84, 87--89).}
+  \label{fig:lec08-pearl}
+\end{figure}
+
+\subsection{Counting cycles; PEARL in practice}\label{sec:lec08-practice}
+\slides{88--90}
+
+\begin{itemize}
+  \item \textbf{To maintain inductive capability the final output} is the
+    expectation over samples, which in practice is computed as an average over
+    $M$ samples:
+\end{itemize}
+\begin{equation}\label{eq:lec08-pearl}
+  \vy = \E\big[\vy^{(m)}\big],\qquad
+  \vy = \frac{1}{M}\sum_{m=1}^{M}\vy^{(m)}
+\end{equation}
+\begin{proposition}[Counting cycles with GNNs; Kanatsoulis et al.\ ICLR 2025]\label{prop:lec08-pearl}
+  PEARL is \textbf{strictly more expressive than the WL-test}. PEARL can count
+  cycles (7-node cycles) with \textbf{near linear complexity}.
+\end{proposition}
+\begin{itemize}
+  \item \textbf{How to use PEARL in practice?} (\cref{fig:lec08-pearl})
+    \begin{enumerate}[label=\arabic*.]
+      \item Sample node ids from a probability distribution.
+      \item Process each set of node samples independently via a GNN.
+      \item Summarize the outputs via empirical expectation.
+      \item Concatenate PEARL embeddings with node features $X$.
+      \item Pass through main GNN/Transformer as usual.
+      \item Backpropagate gradients to train PEARL + prediction model jointly.
+    \end{enumerate}
+    (Slide figure: the PEARL GNN runs on the graph with node attributes removed;
+    the node attributes go directly into the GNN or Transformer;
+    ``graph representation learning framework''.)
+  \item \textbf{Small molecule property prediction} (slide title: ``with
+    SignNet''). Task: given a small molecule (MBX-2982), predict its
+    \textbf{solubility}: $f(\text{molecule}) = \text{solubility}$. Mean absolute
+    error (read off the bar chart): no PE $\approx0.18$, Laplacian PE
+    $\approx0.18$ (slightly higher), sign-invariant Laplacian PE $\approx0.09$,
+    PEARL $\approx0.06$ $\Rightarrow$ \textbf{60\% reduction in test error}.
+\end{itemize}
+
+\paragraph{Summary of the lecture} (slides~91--92).
+\textbf{Part~1:} Transformers to message passing on fully connected graph.
+\textbf{Part~2:} new design landscape for graph Transformers: tokenization,
+positional encoding, modified self-attention (\cref{tab:lec08-design}).
+\textbf{Part~3:} PEARL: positional encodings for graph Transformers. Slide~92
+repeats slide~61: new design space for graph Transformers.
+
+% ---------------------------------------------------------------------
+\bigskip\phantomsection
+\addcontentsline{toc}{section}{Lecture 8 at a glance}
+\begin{summarybox}[Lecture 8 at a glance]
+  \begin{itemize}
+    \item \textbf{Transformers} map 1D sequences of tokens to 1D sequences;
+      self-attention: $Q=XW^Q$, $K=XW^K$, $V=XW^V$,
+      $Z=\softmax(QK\tp/\sqrt{d_k})V$; multi-head = parallel heads with own
+      parameters, combined by $W^O$.
+    \item \textbf{Self-attention = message passing:} $(v_j,k_j)=\MSG(x_j)$,
+      $q_1=W^Qx_1$, $z_1=\sum_j\softmax_j(q_1\tp k_j)v_j$ $\Rightarrow$ special
+      case of message passing on the \textbf{fully connected graph}; softmax
+      only over $j\in N(i)$ $\Rightarrow$ $\sim$GAT.
+    \item Token order does not matter (outputs only permute) $\Rightarrow$
+      \textbf{positional encodings} needed.
+    \item \textbf{Graph Transformer design space:} (1) tokens = node features;
+      (2) PE = adjacency: relative distances or Laplacian eigenvectors
+      ($L$ = Degrees $-$ Adjacency, row $i$ of $[v_1,\dots,v_k]$);
+      (3) modified attention $a_{ij}+c_{ij}$, $c_{ij}=w_1^Te_{ij}$ or
+      $\sum_n w_n^Te^n$ along the shortest path.
+    \item \textbf{Laplacian PE issues:} sign ambiguity ($v$, $-v$ $\Rightarrow$
+      $2^k$ predictions; fixes: random sign flips, sign-invariant networks);
+      cubic time, quadratic space.
+    \item \textbf{PEARL:} random samples as node IDs, each sample through a GNN,
+      $\vy=\frac{1}{M}\sum_m\vy^{(m)}$; strictly more expressive than WL, counts
+      7-node cycles with near linear complexity; 60\% lower test error on
+      solubility.
+  \end{itemize}
+\end{summarybox}
