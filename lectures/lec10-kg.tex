@@ -1,0 +1,845 @@
+\lecture{10}{Knowledge Graph Embeddings}{Thursday, October 22, 2026}\label{ch:lec10}
+
+% Local notation (lecture 10)
+\providecommand{\vt}{\mathbf{t}}
+\providecommand{\vg}{\mathbf{g}}
+\providecommand{\C}{\mathbb{C}}
+\providecommand{\cRe}{\operatorname{Re}}
+\providecommand{\cIm}{\operatorname{Im}}
+\providecommand{\Ker}{\operatorname{Ker}}
+\providecommand{\cmark}{\textcolor{ForestGreen}{\checkmark}}
+\providecommand{\xmark}{\textcolor{BrickRed}{$\boldsymbol{\times}$}}
+
+% Local TikZ styles (prefix lec10)
+\tikzset{
+  lec10ent/.style={circle, fill=blue!80, minimum size=3.2mm, inner sep=0pt},
+  lec10gen/.style={circle, fill=ForestGreen!85!black, minimum size=3.2mm, inner sep=0pt},
+  lec10lbl/.style={font=\scriptsize\sffamily, fill=white, inner sep=1pt},
+  lec10name/.style={font=\scriptsize\sffamily},
+  lec10inf/.style={thick, RoyalBlue, -{Stealth[length=1.8mm]}},
+  lec10gr/.style={thick, ForestGreen, -{Stealth[length=1.8mm]}},
+  lec10pt/.style={circle, draw=black, fill=YellowOrange, minimum size=1.3mm, inner sep=0pt},
+  lec10vec/.style={thick, -{Stealth[length=1.8mm]}},
+  lec10ax/.style={thick, black!80},
+  lec10proj/.style={densely dashed, black!60},
+  lec10cap/.style={font=\scriptsize\sffamily, align=center},
+}
+
+\textbf{Outline.} Recap (heterogeneous graphs, RGCN) $\to$ knowledge graphs
+(KGs) and KG datasets $\to$ KG completion with shallow embeddings $\to$ relation
+patterns $\to$ TransE $\to$ TransR $\to$ DistMult $\to$ ComplEx $\to$ comparison
+of the models and KG embeddings in practice.
+
+% ---------------------------------------------------------------------
+\section{Knowledge graphs}\label{sec:lec10-kg}
+
+\subsection{Recap: heterogeneous graphs and relational GCN}\label{sec:lec10-recap}
+\slides{3--4}
+
+(Details in \cref{ch:lec09}.)
+\begin{itemize}
+  \item \textbf{Heterogeneous graphs:} a graph with \textbf{multiple relation
+    types} (example input graph: nodes $A$--$F$, relations $r_1,r_2,r_3$, target
+    node $A$).
+  \item \textbf{Relational GCN:} learn from a graph with multiple relation types;
+    \textbf{use different neural network weights for different relation types!}
+    (computation graph of $A$: one neural network per relation type, then
+    aggregation).
+\end{itemize}
+
+\subsection{Knowledge graphs and examples}\label{sec:lec10-kgdef}
+\slides{5--9}
+
+\begin{itemize}
+  \item \term{Knowledge graph (KG)}: knowledge in graph form -- capture
+    entities, types, and relationships:
+    \begin{itemize}
+      \item nodes are \textbf{entities}; nodes are labeled with their
+        \textbf{types}; edges between two nodes capture \textbf{relationships}
+        between entities (figure: entities $E_1,E_2,E_3$, each with $A_1,A_2$;
+        relations $R_1,R_2,R_3$).
+      \item \textbf{KG is an example of a heterogeneous graph.}
+    \end{itemize}
+  \item \textbf{Example: bibliographic networks.} Node types: paper, title,
+    author, conference, year. Relation types: pubWhere, pubYear, hasTitle,
+    hasAuthor, cite. Schema: Paper $\to$ Conference (pubWhere), Title
+    (hasTitle), Author (hasAuthor), Year (pubYear), Paper (cite, self-loop).
+  \item \textbf{Example: bio knowledge graphs.} Node types: drug, disease, adverse
+    event, protein, pathways. Relation types: has\_func, causes, assoc, treats,
+    is\_a. E.g.\ fulvestrant (drug) \textsc{treats} Breast Neoplasms (disease)
+    and \textsc{causes} migraine (adverse event); Breast Neoplasms \textsc{is\_a}
+    Neoplasms by Site; ESR1 (protein) \textsc{has\_func} response to estradiol
+    (pathway); cerebral haemorrhage \textsc{assoc} CASP8 (protein).
+  \item \textbf{Knowledge graphs in practice:} Google Knowledge Graph, Amazon
+    Product Graph, Meta Graph API, IBM Watson, Microsoft Satori, Project
+    Hanover/Literome, LinkedIn Knowledge Graph, Yandex Object Answer.
+  \item \textbf{Applications -- serving information:} e.g.\ the Bing query
+    ``latest films by the director of titanic'' returns ``Movies featuring James
+    Cameron''.
+\end{itemize}
+
+\subsection{Knowledge graph datasets}\label{sec:lec10-datasets}
+\slides{10--11}
+
+\begin{itemize}
+  \item \textbf{Publicly available KGs:} FreeBase, Wikidata, Dbpedia, YAGO, NELL,
+    etc.
+  \item \textbf{Common characteristics:} \textbf{Massive} -- millions of nodes and
+    edges; \textbf{Incomplete} -- many true edges are missing.
+  \item Given a massive KG, \textbf{enumerating all the possible facts is
+    intractable!} $\Rightarrow$ \textbf{Can we predict plausible BUT missing
+    links?}
+  \item \textbf{Example: Freebase} -- $\sim$80 million \textbf{entities},
+    $\sim$38K \textbf{relation types}, $\sim$3 billion \textbf{facts/triples}.
+    Incomplete: \textbf{93.8\%} of persons from Freebase have no place of birth
+    and \textbf{78.5\%} have no nationality! (Paulheim, 2017; Min et al., NAACL
+    2013.)
+  \item \textbf{Datasets: FB15k/FB15k-237} -- a \textbf{complete} subset of
+    Freebase, used by researchers to learn KG models (\cref{tab:lec10-fb15k}).
+\end{itemize}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{FB15k and FB15k-237 (slide~11).}\label{tab:lec10-fb15k}
+  \begin{tabular}{@{}lrrr@{}}
+    \toprule
+    Dataset & Entities & Relations & Total Edges\\
+    \midrule
+    FB15k     & 14,951 & 1,345 & 592,213\\
+    FB15k-237 & 14,505 &   237 & 310,079\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------------
+\section{Knowledge graph completion}\label{sec:lec10-completion}
+
+\subsection{KG completion task and KG representation}\label{sec:lec10-task}
+\slides{13--15}
+
+\begin{itemize}
+  \item \textbf{Given an enormous KG, can we complete the KG?} For a given
+    \textbf{(head, relation)}, we predict missing \textbf{tails} (note: this is
+    slightly different from the link prediction task).
+  \item \textbf{Example task:} predict the tail ``Science Fiction'' for
+    (``J.K. Rowling'', ``genre''), \cref{fig:lec10-completion}.
+  \item \textbf{Recap: ``shallow'' encoding} (\cref{ch:lec02}): simplest encoding
+    approach -- \textbf{encoder is just an embedding-lookup}; embedding matrix
+    $\mZ$ has one column per node (the embedding vector for a specific node);
+    number of rows = dimension/size of embeddings.
+  \item \textbf{KG representation:} edges in KG are represented as
+    \term{triples} $(h,r,t)$: \textbf{head} ($h$) has \textbf{relation} ($r$) with
+    \textbf{tail} ($t$).
+\end{itemize}
+
+\begin{keyidea}
+  Model entities and relations in embedding space $\R^k$: associate entities and
+  relations with \textbf{shallow embeddings} (\textbf{we do not learn a GNN
+  here!}). Given a triple $(h,r,t)$, the goal is that \textbf{the embedding of
+  $(h,r)$ should be close to the embedding of $t$}.
+  \begin{itemize}
+    \item How to embed $(h,r)$? How to define score $f_r(h,t)$?
+    \item Score $f_r$ is high if $(h,r,t)$ exists, else $f_r$ is low.
+  \end{itemize}
+\end{keyidea}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    \node[lec10gen] (sf)  at (3.0,5.5) {};
+    \node[lec10ent] (sk)  at (4.2,2.9) {};
+    \node[lec10ent] (ap)  at (2.7,0.5) {};
+    \node[lec10gen] (fan) at (7.3,3.9) {};
+    \node[lec10ent] (jkr) at (7.5,2.0) {};
+    \node[lec10gen] (tra) at (6.4,0.5) {};
+    \node[lec10ent] (la)  at (9.1,0.2) {};
+    \node[lec10ent] (csl) at (10.8,2.0) {};
+    \node[lec10ent] (tol) at (8.4,6.2) {};
+    \node[lec10name, ForestGreen, left=1pt of sf] {Science Fiction};
+    \node[lec10name, RoyalBlue, left=1pt of sk] {Stephen King};
+    \node[lec10name, RoyalBlue, below=1pt of ap] {Alan Poe};
+    \node[lec10name, ForestGreen, below=1pt of fan] {Fantasy};
+    \node[lec10name, RoyalBlue, above right=0pt and 1pt of jkr] {J.K. Rowling};
+    \node[lec10name, ForestGreen, below=1pt of tra] {Tragicomedy};
+    \node[lec10name, RoyalBlue, right=1pt of la] {Lloyd Alexander};
+    \node[lec10name, RoyalBlue, below=1pt of csl] {C.S. Lewis};
+    \node[lec10name, RoyalBlue, right=1pt of tol] {J.R.R Tolkien};
+    \draw[lec10gr]  (sk)  -- node[lec10lbl] {genre} (sf);
+    \draw[lec10gr]  (sk)  -- node[lec10lbl, pos=0.22] {genre} (fan);
+    \draw[lec10inf] (sk)  -- node[lec10lbl] {Influence} (ap);
+    \draw[lec10inf] (sk)  -- node[lec10lbl, pos=0.45] {Influence} (jkr);
+    \draw[lec10inf] (jkr) -- node[lec10lbl] {Influence} (csl);
+    \draw[lec10inf] (jkr) -- node[lec10lbl, pos=0.55] {Influence} (la);
+    \draw[lec10gr]  (jkr) -- node[lec10lbl] {genre} (tra);
+    \draw[lec10gr]  (csl) -- node[lec10lbl, pos=0.62] {genre} (fan);
+    \draw[lec10inf] (csl) -- node[lec10lbl] {Influence} (tol);
+    \draw[lec10gr]  (tol) -- node[lec10lbl] {genre} (fan);
+    \draw[thick, densely dashed, magenta, -{Stealth[length=1.8mm]}] (jkr) -- (sf);
+    \node[font=\scriptsize\sffamily, magenta, align=center] at (6.0,5.4)
+      {missing relation:\\genre};
+  \end{tikzpicture}
+  \caption{KG completion: predict the missing tail ``Science Fiction'' for
+  (``J.K. Rowling'', ``genre'') (slide~14).}
+  \label{fig:lec10-completion}
+\end{figure}
+
+\subsection{KG embedding models}\label{sec:lec10-models}
+\slides{16--17}
+
+\begin{itemize}
+  \item \textbf{Many KG embedding models} (timeline 2011--2020; three colour
+    groups on the slide):
+    \begin{itemize}
+      \item \textcolor{RoyalBlue}{blue}: SE (Bordes et al., 2011), UM (Bordes et
+        al., 2012), TransE (Bordes et al., 2013), TransH (Wang et al., 2014),
+        KG2E (He et al., 2015), TransR (Lin et al., 2015), Poincar\'e (Nickel et
+        al., 2017), TorusE (He et al., 2018), RotatE (Sun et al., 2019), BoxE
+        (Abboud et al., 2020);
+      \item \textcolor{ForestGreen}{green}: RESCAL (Nickel et al., 2011), DistMult
+        (Yang et al., 2015), ComplEx (Trouillon et al., labelled 2014, placed at
+        2016), TuckER (Balazevic et al., 2019);
+      \item \textcolor{orange}{orange}: NTN (Socher et al., 2013), SME (Bordes et
+        al., 2014), ConvE (Dettmers et al., 2018), r-GCN (Schlichtkrull et al.,
+        2018).
+    \end{itemize}
+  \item \textbf{Today:} different KG embedding models
+    (\textbf{shallow/transductive embs}). Different models are \dots
+    \begin{itemize}
+      \item \dots based on different \textbf{geometric intuitions};
+      \item \dots capture different types of relations (have different
+        \textbf{expressivity}) -- the overview table of slide~17 is
+        \cref{tab:lec10-patterns} (without the RotatE row).
+    \end{itemize}
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{TransE}\label{sec:lec10-transe}
+
+\subsection{Translation intuition}\label{sec:lec10-transe-def}
+\slides{19--20}
+
+\textbf{TransE} (Bordes et al., \emph{Translating embeddings for modeling
+multi-relational data}, NeurIPS 2013).
+\begin{itemize}
+  \item \textbf{Intuition: translation.} For a triple $(h,r,t)$, let
+    $\vh,\vr,\vt\in\R^k$ be embedding vectors (embedding vectors appear in
+    boldface).
+  \item \textbf{TransE:} $\vh+\vr\approx\vt$ if the given link exists, else
+    $\vh+\vr\neq\vt$. \textbf{Entity scoring function:}
+\end{itemize}
+\begin{equation}\label{eq:lec10-transe}
+  f_r(h,t) = -\norm{\vh+\vr-\vt}
+\end{equation}
+\begin{itemize}
+  \item Example: Obama $+$ Nationality $\approx$ U.S.A
+    (\cref{fig:lec10-transe}a).
+  \item \textbf{TransE idea -- entity embeddings:} king $\xrightarrow{female}$
+    queen and man $\xrightarrow{female}$ woman; man $\xrightarrow{royal}$ king and
+    woman $\xrightarrow{royal}$ queen -- a parallelogram
+    (\cref{fig:lec10-transe}b).
+\end{itemize}
+
+\subsection{How to learn TransE}\label{sec:lec10-transe-learn}
+\slides{21}
+
+\begin{itemize}
+  \item \textbf{Input:} training set $S=\{(h,r,t)\}$, entities and rel.\ sets $E$
+    and $R$, margin $\gamma$, embeddings dim.\ $k$ (\cref{alg:lec10-transe}).
+  \item Initialize relations $r$ and entities $e$ \textbf{uniformly}, then
+    \textbf{normalize}; $\gamma$ is the \textbf{margin}.
+  \item For each training triple, sample a \textbf{corrupted triplet} $(h',r,t)$
+    that \textbf{does not appear in the KG}.
+  \item Update embeddings w.r.t.\ the \term{contrastive loss} ($d$ represents
+    distance = negative of score):
+\end{itemize}
+\begin{equation}\label{eq:lec10-loss}
+  \sum_{((h,r,t),(h',r,t'))\in T_{batch}}
+  \big[\gamma + \underbrace{d(\vh+\vr,\vt)}_{\text{positive sample}}
+             - \underbrace{d(\vh'+\vr,\vt')}_{\text{negative sample}}\big]_+
+\end{equation}
+\begin{itemize}
+  \item[] Contrastive loss: favors \textbf{lower distance (or higher score) for
+    valid triplets}, \textbf{high distance (or lower score) for corrupted ones}.
+\end{itemize}
+
+\begin{algorithm}[htbp]
+  \caption{Learning TransE (slide~21)}\label{alg:lec10-transe}
+  \begin{algorithmic}[1]
+    \Statex \textbf{input} Training set $S=\{(h,r,t)\}$, entities and rel.\ sets
+      $E$ and $R$, margin $\gamma$, embeddings dim.\ $k$.
+    \State \textbf{initialize} $\vr\gets\mathrm{uniform}(-\frac{6}{\sqrt{k}},
+      \frac{6}{\sqrt{k}})$ for each $r\in R$
+    \State \phantom{\textbf{initialize}} $\vr\gets\vr/\norm{\vr}$ for each $r\in R$
+    \State \phantom{\textbf{initialize}} $\ve\gets\mathrm{uniform}(-\frac{6}{\sqrt{k}},
+      \frac{6}{\sqrt{k}})$ for each entity $e\in E$
+    \Loop
+      \State $\ve\gets\ve/\norm{\ve}$ for each entity $e\in E$
+      \State $S_{batch}\gets\mathrm{sample}(S,b)$ \Comment{sample a minibatch of size $b$}
+      \State $T_{batch}\gets\emptyset$ \Comment{initialize the set of pairs of triplets}
+      \For{$(h,r,t)\in S_{batch}$}
+        \State $(h',r,t')\gets\mathrm{sample}(S'_{(h,r,t)})$ \Comment{sample a corrupted triplet}
+        \State $T_{batch}\gets T_{batch}\cup\{((h,r,t),(h',r,t'))\}$
+      \EndFor
+      \State Update embeddings w.r.t.\ the loss \eqref{eq:lec10-loss}
+    \EndLoop
+  \end{algorithmic}
+\end{algorithm}
+
+\subsection{Relation patterns}\label{sec:lec10-patterns}
+\slides{22--23}
+
+\begin{itemize}
+  \item \textbf{Relations in a heterogeneous KG have different properties.}
+    Example:
+    \begin{itemize}
+      \item \textbf{Symmetry:} if the edge $(h,\text{``Roommate''},t)$ exists
+        in KG, then the edge\\ $(t,\text{``Roommate''},h)$ should also exist.
+      \item \textbf{Inverse relation:} if the edge $(h,\text{``Advisor''},t)$
+        exists in KG, then the edge\\ $(t,\text{``Advisee''},h)$ should also
+        exist.
+    \end{itemize}
+  \item Can we \textbf{categorize} these relation patterns? \textbf{Are KG
+    embedding methods (e.g., TransE) expressive enough to model these
+    patterns?}
+\end{itemize}
+
+\begin{definition}[Four relation patterns]\label{def:lec10-patterns}
+  \begin{align}
+    \text{\textbf{Symmetric (Antisymmetric):}}\quad
+      & r(h,t)\Rightarrow r(t,h)\ \ \big(r(h,t)\Rightarrow\neg r(t,h)\big)
+        \quad\forall h,t \label{eq:lec10-sym}\\
+    \text{\textbf{Inverse:}}\quad
+      & r_2(h,t)\Rightarrow r_1(t,h) \label{eq:lec10-inv}\\
+    \text{\textbf{Composition (Transitive):}}\quad
+      & r_1(x,y)\wedge r_2(y,z)\Rightarrow r_3(x,z)\quad\forall x,y,z
+        \label{eq:lec10-comp}\\
+    \text{\textbf{1-to-N:}}\quad
+      & r(h,t_1), r(h,t_2),\dots,r(h,t_n)\ \text{are all True.}
+        \label{eq:lec10-1toN}
+  \end{align}
+  \textbf{Examples:} symmetric -- Family, Roommate; antisymmetric -- Hypernym (a
+  word with a broader meaning: poodle vs.\ dog); inverse -- (Advisor, Advisee);
+  composition -- my mother's husband is my father; 1-to-N -- $r$ is
+  ``StudentsOf''.
+\end{definition}
+
+\subsection{Relation patterns in TransE}\label{sec:lec10-transe-patterns}
+\slides{24--29}
+
+\begin{itemize}
+  \item \textbf{Antisymmetric \cmark:} $\vh+\vr=\vt$, but $\vt+\vr\neq\vh$
+    (\cref{fig:lec10-transe}c).
+  \item \textbf{Inverse \cmark:} $\vh+\vr_2=\vt$, we can set $\vr_1=-\vr_2$
+    (\cref{fig:lec10-transe}d).
+  \item \textbf{Composition \cmark:} $\vr_3=\vr_1+\vr_2$
+    (\cref{fig:lec10-transe}e).
+  \item \textbf{Symmetric \xmark} -- \textbf{only if $\vr=0$, $\vh=\vt$}: for all
+    $h,t$ that satisfy $r(h,t)$, $r(t,h)$ is also True, which means
+    $\norm{\vh+\vr-\vt}=0$ and $\norm{\vt+\vr-\vh}=0$. Then $\vr=0$ and
+    $\vh=\vt$; however $h$ and $t$ are two different entities and should be
+    mapped to different locations.
+  \item \textbf{1-to-N \xmark:} $(h,r,t_1)$ and $(h,r,t_2)$ both exist in the
+    knowledge graph (e.g.\ $r$ is ``StudentsOf''); $\vt_1$ and $\vt_2$ will map to
+    the same vector, although they are different entities
+    (\cref{fig:lec10-transe}f):
+    \[
+      \vt_1=\vh+\vr=\vt_2,\qquad \vt_1\neq\vt_2\qquad\text{contradictory!}
+    \]
+  \item \textbf{What we learned so far} (slide~29): the TransE row of
+    \cref{tab:lec10-patterns}.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    % (a) translation
+    \begin{scope}
+      \draw[lec10ax] (0,2.2) -- (0,0) -- (3.2,0);
+      \node[lec10pt] (h) at (0.6,0.7) {}; \node[lec10pt] (t) at (2.5,1.2) {};
+      \draw[lec10vec, red!75!black] (h) -- node[above, font=\small] {$\vr$} (t);
+      \node[left, blue, font=\small] at (h) {$\vh$};
+      \node[above, ForestGreen, font=\small] at (t) {$\vt$};
+      \node[lec10cap] at (2.1,1.95) {Obama $\xrightarrow{\text{Nationality}}$ U.S.A};
+      \node[lec10cap] at (1.6,-0.4) {(a) $\vh+\vr\approx\vt$ (sl.~19)};
+    \end{scope}
+    % (b) king / queen
+    \begin{scope}[xshift=4.3cm]
+      \node[font=\scriptsize] (k) at (0.5,1.8) {king};
+      \node[font=\scriptsize] (q) at (2.7,1.8) {queen};
+      \node[font=\scriptsize] (m) at (0.1,0.3) {man};
+      \node[font=\scriptsize] (w) at (2.3,0.3) {woman};
+      \draw[lec10vec, red!75!black] (k) -- node[above, font=\tiny\itshape] {female} (q);
+      \draw[lec10vec, red!75!black] (m) -- node[below, font=\tiny\itshape] {female} (w);
+      \draw[lec10vec, blue!70] (m) -- node[left, font=\tiny\itshape] {royal} (k);
+      \draw[lec10vec, blue!70] (w) -- node[right, font=\tiny\itshape] {royal} (q);
+      \node[lec10cap] at (1.4,-0.4) {(b) entity embeddings (sl.~20)};
+    \end{scope}
+    % (c) antisymmetric
+    \begin{scope}[xshift=8.6cm]
+      \draw[lec10ax] (0,2.2) -- (0,0) -- (3.2,0);
+      \node[lec10pt] (h) at (0.5,0.6) {}; \node[lec10pt] (t) at (1.5,0.9) {};
+      \draw[lec10vec, red!75!black] (h) -- node[above, font=\small] {$\vr$} (t);
+      \draw[lec10vec, red!75!black] (t) -- node[above, font=\small] {$\vr$} (2.6,1.25);
+      \node[below, font=\small] at (h) {$\vh$};
+      \node[below, font=\small] at (t) {$\vt$};
+      \node[lec10cap] at (1.6,-0.4) {(c) antisymmetric \cmark\ (sl.~24)};
+    \end{scope}
+    % (d) inverse
+    \begin{scope}[yshift=-3.3cm]
+      \draw[lec10ax] (0,2.2) -- (0,0) -- (3.2,0);
+      \node[lec10pt] (h) at (0.6,0.8) {}; \node[lec10pt] (t) at (2.4,1.2) {};
+      \draw[lec10vec, red!75!black] ([yshift=1.5pt]h.north east) --
+        node[above, font=\small] {$\vr_1$} ([yshift=1.5pt]t.north west);
+      \draw[lec10vec, ForestGreen] ([yshift=-1.5pt]t.south west) --
+        node[below, font=\small] {$\vr_2$} ([yshift=-1.5pt]h.south east);
+      \node[left, font=\small] at (h) {$\vh$};
+      \node[right, font=\small] at (t) {$\vt$};
+      \node[lec10cap] at (1.6,-0.4) {(d) inverse \cmark\ (sl.~25)};
+    \end{scope}
+    % (e) composition
+    \begin{scope}[xshift=4.3cm, yshift=-3.3cm]
+      \draw[lec10ax] (0,2.2) -- (0,0) -- (3.2,0);
+      \node[lec10pt] (x) at (0.5,0.5) {}; \node[lec10pt] (y) at (1.4,1.5) {};
+      \node[lec10pt] (z) at (2.7,0.7) {};
+      \draw[lec10vec, red!75!black] (x) -- node[above left=-2pt, font=\small] {$\vr_1$} (y);
+      \draw[lec10vec, orange] (y) -- node[above right=-2pt, font=\small] {$\vr_2$} (z);
+      \draw[lec10vec, blue] (x) -- node[below, font=\small] {$\vr_3$} (z);
+      \node[left, font=\small] at (x) {$\vx$};
+      \node[above, font=\small] at (y) {$\vy$};
+      \node[right, font=\small] at (z) {$\vz$};
+      \node[lec10cap] at (1.6,-0.4) {(e) composition \cmark\ (sl.~26)};
+    \end{scope}
+    % (f) 1-to-N
+    \begin{scope}[xshift=8.6cm, yshift=-3.3cm]
+      \draw[lec10ax] (0,2.2) -- (0,0) -- (3.2,0);
+      \node[lec10pt] (h) at (2.3,0.4) {}; \node[lec10pt] (t1) at (1.0,1.8) {};
+      \node[lec10pt] (t2) at (1.1,1.1) {};
+      \draw[lec10vec] (h) -- node[right, font=\small] {$\vr$} (t1);
+      \draw[lec10vec] (h) -- node[below, font=\small] {$\vr$} (t2);
+      \node[below right=-1pt, font=\small] at (h) {$\vh$};
+      \node[left, red!75!black, font=\small] at (t1) {$\vt_1$};
+      \node[left, ForestGreen, font=\small] at (t2) {$\vt_2$};
+      \node[lec10cap] at (1.6,-0.4) {(f) 1-to-N \xmark\ (sl.~28)};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{TransE geometry (slides~19--28).}
+  \label{fig:lec10-transe}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\section{TransR}\label{sec:lec10-transr}
+
+\subsection{Translation in relation-specific space}\label{sec:lec10-transr-def}
+\slides{31--32}
+
+\textbf{TransR} (Lin et al., \emph{Learning entity and relation embeddings for
+knowledge graph completion}, AAAI 2015).
+\begin{itemize}
+  \item TransE models translation of any relation in the \textbf{same} embedding
+    space. \textbf{Can we design a new space for each relation and do
+    translation in relation-specific space?}
+  \item \textbf{TransR:} model \textbf{entities} as vectors in the entity space
+    $\R^d$ and model each \textbf{relation} as vector in relation space
+    $\vr\in\R^k$ with $\mM_r\in\R^{k\times d}$ as the \term{projection matrix}.
+    Use $\mM_r$ to \textbf{project} from entity space $\R^d$ to relation space
+    $\R^k$! (\cref{fig:lec10-transr}a)
+\end{itemize}
+\begin{equation}\label{eq:lec10-transr}
+  \vh_\perp=\mM_r\vh,\quad \vt_\perp=\mM_r\vt,\qquad
+  f_r(h,t) = -\norm{\vh_\perp+\vr-\vt_\perp}
+\end{equation}
+
+\subsection{Relation patterns in TransR}\label{sec:lec10-transr-patterns}
+\slides{33--36}
+
+\begin{itemize}
+  \item \textbf{Symmetric \cmark:}
+    $\vr=0,\ \vh_\perp=\mM_r\vh=\mM_r\vt=\vt_\perp$. We can map $h$ and $t$ to the
+    same location on the space of relation $r$; then $r=0$; $h$ and $t$ are still
+    different in the entity space. Note different symmetric relations may have
+    different $\mM_r$.
+  \item \textbf{Antisymmetric \cmark:} $\vr\neq0$, $\mM_r\vh+\vr=\mM_r\vt$; then
+    $\mM_r\vt+\vr\neq\mM_r\vh$.
+  \item \textbf{1-to-N \cmark:} we can learn $\mM_r$ so that
+    $\vt_\perp=\mM_r\vt_1=\mM_r\vt_2$. Note that $\vt_1$ does not need to be equal
+    to $\vt_2$! (\cref{fig:lec10-transr}b)
+  \item \textbf{Inverse \cmark:} $\vr_2=-\vr_1$, $\mM_{r_1}=\mM_{r_2}$. Then
+    $\mM_{r_1}\vt+\vr_1=\mM_{r_1}\vh$ and $\mM_{r_2}\vh+\vr_2=\mM_{r_2}\vt$.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    % (a) projection
+    \begin{scope}
+      \draw[lec10ax] (0,2.6) -- (0,0) -- (3.0,0);
+      \draw[lec10ax] (3.4,2.6) -- (3.4,0) -- (6.6,0);
+      \node[font=\tiny\sffamily\bfseries, ForestGreen] at (1.5,2.8) {Space of entities: $\R^d$};
+      \node[font=\tiny\sffamily\bfseries, blue] at (5.0,2.8) {Space of relation $r$: $\R^k$};
+      \node[lec10pt] (t) at (0.5,2.0) {}; \node[lec10pt] (h) at (1.9,1.1) {};
+      \node[lec10pt] (hp) at (4.4,0.8) {}; \node[lec10pt] (tp) at (5.9,1.15) {};
+      \draw[lec10proj] (t) -- (tp); \draw[lec10proj] (h) -- (hp);
+      \draw[lec10vec] (hp) -- node[below, font=\small] {$\vr$} (tp);
+      \node[below, font=\small] at (t) {$\vt$};
+      \node[below, font=\small] at (h) {$\vh$};
+      \node[below, font=\small] at (hp) {$\vh_\perp$};
+      \node[above, font=\small] at (tp) {$\vt_\perp$};
+      \node[blue, font=\small] at (3.0,1.85) {$\mM_r$};
+      \node[lec10cap] at (3.3,-0.4) {(a) TransR projection (sl.~32)};
+    \end{scope}
+    % (b) 1-to-N
+    \begin{scope}[xshift=7.4cm]
+      \draw[lec10ax] (0,2.6) -- (0,0) -- (3.0,0);
+      \draw[lec10ax] (3.4,2.6) -- (3.4,0) -- (6.6,0);
+      \node[lec10pt] (t1) at (0.8,2.1) {}; \node[lec10pt] (t2) at (0.9,1.4) {};
+      \node[lec10pt] (h) at (1.4,0.6) {};
+      \node[lec10pt] (hp) at (4.4,1.0) {}; \node[lec10pt] (tp) at (5.9,1.35) {};
+      \draw[lec10proj] (t1) -- (tp); \draw[lec10proj] (t2) -- (tp);
+      \draw[lec10proj] (h) -- (hp);
+      \draw[lec10vec] (hp) -- node[below, font=\small] {$\vr$} (tp);
+      \node[left, red!75!black, font=\small] at (t1) {$\vt_1$};
+      \node[left, ForestGreen, font=\small] at (t2) {$\vt_2$};
+      \node[below, font=\small] at (h) {$\vh$};
+      \node[below, font=\small] at (hp) {$\vh_\perp$};
+      \node[above right=-2pt, font=\small] at (tp) {$\vt_\perp$};
+      \node[blue, font=\small] at (2.6,2.05) {$\mM_r$};
+      \node[lec10cap] at (3.3,-0.4) {(b) 1-to-N: $\mM_r\vt_1=\mM_r\vt_2$ (sl.~35)};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{TransR: entities in $\R^d$ are projected by $\mM_r$ into the space of
+  relation $r$, $\R^k$, where $\vh_\perp+\vr\approx\vt_\perp$ (slides~32, 35).}
+  \label{fig:lec10-transr}
+\end{figure}
+
+\subsection{Composition relations in TransR}\label{sec:lec10-transr-comp}
+\slides{37--41}
+
+\begin{itemize}
+  \item \textbf{Composition \cmark.} \textbf{High-level intuition:} TransR models
+    a triple with linear functions. \textbf{Linear functions are chainable!} If
+    $f(x)$ and $g(x)$ are linear, then $f(g(x))$ is also linear: let
+    $f(x)=a\cdot x+b$, $g(x)=c\cdot x+d$; then $f(g(x))=a(c\cdot x+d)+b$.
+  \item \textbf{Background -- Def: kernel space of a matrix $\mM$:}
+    $\vh\in\Ker(\mM)$, then $\mM\cdot\vh=\mathbf{0}$ (figure: the region
+    $\Ker(\mM)$ is mapped by $\mM$ to $\mathbf{0}$).
+  \item \textbf{Argument.} Assume $\mM_{r_1}\vg_1=\vr_1$ and
+    $\mM_{r_2}\vg_2=\vr_2$.
+\end{itemize}
+\begin{align}
+  \text{For } r_1(x,y):\ \ & r_1(x,y)\text{ exists}\Rightarrow
+    \mM_{r_1}\vx+\vr_1=\mM_{r_1}\vy\Rightarrow\mM_{r_1}(\vy-\vx)=\vr_1 \notag\\
+  & \vy-\vx\in\vg_1+\Ker(\mM_{r_1})\Rightarrow\vy\in\vx+\vg_1+\Ker(\mM_{r_1})\notag\\
+  \text{Same for } r_2(y,z):\ \ & r_2(y,z)\text{ exists}\Rightarrow
+    \mM_{r_2}\vy+\vr_2=\mM_{r_2}\vz\Rightarrow\notag\\
+  & \vz-\vy\in\vg_2+\Ker(\mM_{r_2})\Rightarrow\vz\in\vy+\vg_2+\Ker(\mM_{r_2})\notag\\
+  \text{Then, we have}\ \ & \vz\in\vx+\vg_1+\vg_2+\Ker(\mM_{r_1})+\Ker(\mM_{r_2})
+    \label{eq:lec10-kernel}
+\end{align}
+\begin{itemize}
+  \item \textbf{Construct $\mM_{r_3}$} s.t.\
+    $\Ker(\mM_{r_3})=\Ker(\mM_{r_1})+\Ker(\mM_{r_2})$. Since
+    $\dim\big(\Ker(\mM_{r_3})\big)\ge\dim\big(\Ker(\mM_{r_1})\big)$ and
+    $\mM_{r_3}$ has the same shape as $\mM_{r_1}$, we know $\mM_{r_3}$ exists!
+  \item \textbf{Set} $\vr_3=\mM_{r_3}(\vg_1+\vg_2)$. \textbf{We have}
+    $\mM_{r_3}\vx+\vr_3=\mM_{r_3}\vz$.
+  \item \textbf{What we learned so far} (slide~41): TransR captures all five
+    patterns (\cref{tab:lec10-patterns}).
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{DistMult}\label{sec:lec10-distmult}
+
+\subsection{Bilinear modeling}\label{sec:lec10-bilinear}
+\slides{43--45}
+
+\textbf{DistMult} (Yang et al., \emph{Embedding Entities and Relations for
+Learning and Inference in Knowledge Bases}, ICLR 2015).
+\begin{itemize}
+  \item \textbf{So far:} the scoring function $f_r(h,t)$ is the \textbf{negative
+    of L1 / L2 distance} in TransE and TransR.
+  \item \textbf{Idea: use bilinear modeling.} Score function:
+\end{itemize}
+\begin{equation}\label{eq:lec10-bilinear}
+  f_r(h,t)=h\cdot A\cdot t,\qquad \vh,\vt\in\R^k,\ \mA\in\R^{k\times k}
+\end{equation}
+\begin{itemize}
+  \item \textbf{Problem:} too general and prone to overfitting -- matrix $A$ is
+    too expressive. \textbf{Fix: limit $A$ to be diagonal} $\Rightarrow$ this is
+    called \term{DistMult}.
+  \item \textbf{DistMult:} entities and relations are vectors in $\R^k$. Score
+    function (elementwise product, then sum):
+\end{itemize}
+\begin{equation}\label{eq:lec10-distmult}
+  f_r(h,t)=\langle\vh,\vr,\vt\rangle=\sum_i\vh_i\cdot\vr_i\cdot\vt_i,
+  \qquad \vh,\vr,\vt\in\R^k
+\end{equation}
+\begin{itemize}
+  \item \textbf{Intuition of the score function:} can be viewed as a
+    \textbf{cosine similarity} between $\vh\cdot\vr$ and $\vt$, where
+    $\vh\cdot\vr$ is defined as $[\vh\cdot\vr]_i=\vh_i\cdot\vr_i$
+    (\textbf{Hadamard product}):
+\end{itemize}
+\begin{equation}\label{eq:lec10-cos}
+  \cos(\vh\cdot\vr,\vt)=\frac{\langle\vh,\vr,\vt\rangle}{\norm{\vh\cdot\vr}\norm{\vt}},
+  \qquad
+  \langle\vh,\vr,\vt\rangle=\cos(\vh\cdot\vr,\vt)\norm{\vh\cdot\vr}\norm{\vt}
+\end{equation}
+\begin{itemize}
+  \item \textbf{Example:} $f_r(h,t_1)<0$, $f_r(h,t_2)>0$ ($\vt_2$ on the
+    $\vh\cdot\vr$ side of the dashed line orthogonal to $\vh\cdot\vr$, $\vt_1$ on
+    the other side; \cref{fig:lec10-distmult}a).
+\end{itemize}
+
+\subsection{Relation patterns in DistMult}\label{sec:lec10-distmult-patterns}
+\slides{46--51}
+
+\begin{itemize}
+  \item \textbf{1-to-N \cmark:}
+    $\langle\vh,\vr,\vt_1\rangle=\langle\vh,\vr,\vt_2\rangle$ ($\vt_1,\vt_2$ on
+    the same dashed line orthogonal to $\vh\cdot\vr$,
+    \cref{fig:lec10-distmult}b).
+  \item \textbf{Symmetric \cmark} (DistMult can \textbf{naturally} model them),
+    due to the commutative property of multiplication:
+    \[
+      f_r(h,t)=\langle\vh,\vr,\vt\rangle=\sum_i\vh_i\cdot\vr_i\cdot\vt_i
+      =\langle\vt,\vr,\vh\rangle=f_r(t,h)
+    \]
+  \item \textbf{Antisymmetric \xmark:}
+    $f_r(h,t)=\langle\vh,\vr,\vt\rangle=\langle\vt,\vr,\vh\rangle=f_r(t,h)$ --
+    $r(h,t)$ and $r(t,h)$ \textbf{always have same score!} DistMult cannot
+    differentiate between head entity and tail entity: all relations are
+    modelled as symmetric regardless, i.e.\ even antisymmetric relations will be
+    represented as symmetric.
+  \item \textbf{Inverse \xmark:} assume DistMult does model inverse relations:
+    $f_{r_2}(h,t)=\langle\vh,\vr_2,\vt\rangle=\langle\vt,\vr_1,\vh\rangle=f_{r_1}(t,h)$.
+    For example, $\vr_2=\vr_1$ solves this (there also exist solutions
+    $\vr_2\neq\vr_1$). \textbf{But semantically this does not make sense: the
+    embedding of ``Advisor'' relation should not be the same as ``Advisee''
+    relation.}
+  \item \textbf{Composition \xmark.} Intuition: because dot product is
+    commutative ($a\cdot b=b\cdot a$), DistMult does not distinguish between head
+    and tail entities, so it cannot model composition.
+  \item \textbf{What we learned so far} (slide~51): the DistMult row of
+    \cref{tab:lec10-patterns}.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    % (a) sign of the score
+    \begin{scope}
+      \coordinate (o) at (0,0);
+      \draw[lec10proj, thick] (0.33,-1.43) -- (-0.4,1.73);
+      \draw[lec10vec] (o) -- (2.8,0.65) node[right, font=\small] {$\vh\cdot\vr$};
+      \draw[lec10vec, ForestGreen] (o) -- (2.0,1.4) node[above, font=\small] {$\vt_2$};
+      \draw[lec10vec, red!75!black] (o) -- (-0.7,-0.85) node[below left=-2pt, font=\small] {$\vt_1$};
+      \node[font=\scriptsize, align=left] at (2.3,-0.9) {$f_r(h,t_1)<0$\\ $f_r(h,t_2)>0$};
+      \node[lec10cap] at (1.0,-1.9) {(a) sign of $\langle\vh,\vr,\vt\rangle$ (sl.~45)};
+    \end{scope}
+    % (b) 1-to-N
+    \begin{scope}[xshift=6.0cm, yshift=-1.4cm]
+      \draw[lec10ax] (0,3.4) -- (0,0) -- (3.4,0);
+      \draw[lec10proj] (2.24,0.18) -- (1.75,2.9);
+      \draw[lec10vec] (0,0) -- (2.2,0.4) node[right, font=\small] {$\vh\cdot\vr$};
+      \draw[lec10vec, ForestGreen] (0,0) -- (2.02,1.39) node[right, font=\small] {$\vt_2$};
+      \draw[lec10vec, red!75!black] (0,0) -- (1.9,2.05) node[right, font=\small] {$\vt_1$};
+      \node[lec10cap] at (1.7,-0.5) {(b) 1-to-N:
+        $\langle\vh,\vr,\vt_1\rangle=\langle\vh,\vr,\vt_2\rangle$ (sl.~46)};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{DistMult geometry (slides~45--46).}
+  \label{fig:lec10-distmult}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\section{ComplEx}\label{sec:lec10-complex}
+
+\subsection{Complex embeddings and the score function}\label{sec:lec10-complex-def}
+\slides{53--55}
+
+\textbf{ComplEx} (Trouillon et al., \emph{Complex Embeddings for Simple Link
+Prediction}, ICML 2016).
+\begin{itemize}
+  \item Based on DistMult, \textbf{ComplEx} embeds entities and relations in
+    \textbf{complex vector space}: vectors in $\C^k$.
+  \item $\vu\in\C^k$: $\vu=\va+\vb i$ with $\va\in\R^k$, $\vb\in\R^k$;
+    $\bar\vu=\va-\vb i$ is called a \term{conjugate} (figure: $\bar\vu$ is the
+    mirror image of $\vu$ in the plane with axes $\cRe(\vu)$, $\cIm(\vu)$).
+  \item \textbf{Complex multiplication:} $(a+ib)(c+id)=(ac-bd)+i(ad+bc)$.
+    Example: $(3+4i)\cdot(2+3i)=(3+4i)\cdot 2+(3+4i)\cdot 3i=-6+17i$ (scale
+    ($\ast2$) plus scale/rotate ($\ast3i$)).
+  \item \textbf{Score function} (inner product of $\vh$, $\vr$, $\bar\vt$, then
+    sum):
+\end{itemize}
+\begin{equation}\label{eq:lec10-complex}
+  f_r(h,t)=\cRe\Big(\sum_i\vh_i\cdot\vr_i\cdot\bar\vt_i\Big)
+\end{equation}
+Expanded (slides~54--55):
+\begin{align}
+  f_r(h,t)&=\cRe\Big(\sum_i\vh_i\cdot\vr_i\cdot\bar\vt_i\Big)
+    =\sum_i\cRe(\vh_i\cdot\vr_i\cdot\bar\vt_i)\notag\\
+  &=\sum_i\cRe\Big(\big(\cRe(\vh_i)+i\cIm(\vh_i)\big)\cdot
+    \big(\cRe(\vr_i)+i\cIm(\vr_i)\big)\cdot\big(\cRe(\vt_i)-i\cIm(\vt_i)\big)\Big)\notag\\
+  &=\sum_i\Big[\cRe(\vh_i)\cRe(\vr_i)\cRe(\vt_i)+\cRe(\vh_i)\cIm(\vr_i)\cIm(\vt_i)\notag\\
+  &\qquad\quad +\cIm(\vh_i)\cRe(\vr_i)\cIm(\vt_i)-\cIm(\vh_i)\cIm(\vr_i)\cRe(\vt_i)\Big]\notag\\
+  &=\langle\cRe(\vh_i),\cRe(\vr_i),\cRe(\vt_i)\rangle
+    +\langle\cRe(\vh_i),\cIm(\vr_i),\cIm(\vt_i)\rangle\notag\\
+  &\quad+\langle\cIm(\vh_i),\cRe(\vr_i),\cIm(\vt_i)\rangle
+    -\langle\cIm(\vh_i),\cIm(\vr_i),\cRe(\vt_i)\rangle
+  \label{eq:lec10-complex-expand}
+\end{align}
+
+\subsection{Relation patterns in ComplEx}\label{sec:lec10-complex-patterns}
+\slides{56--59}
+
+\begin{itemize}
+  \item \textbf{Antisymmetric \cmark:} the model is expressive enough to learn
+    \begin{itemize}
+      \item \textbf{high} $f_r(h,t)=\cRe\big(\sum_i\vh_i\cdot\vr_i\cdot\bar\vt_i\big)$,
+      \item \textbf{low} $f_r(t,h)=\cRe\big(\sum_i\vt_i\cdot\vr_i\cdot\bar\vh_i\big)$,
+    \end{itemize}
+    due to the \textbf{asymmetric modeling using complex conjugate}.
+  \item \textbf{Symmetric \cmark:} when $\cIm(\vr)=0$, we have
+\end{itemize}
+\begin{align}
+  f_r(h,t)&=\cRe\Big(\sum_i\vh_i\cdot\vr_i\cdot\bar\vt_i\Big)
+    =\sum_i\cRe(\vr_i\cdot\vh_i\cdot\bar\vt_i)
+    =\sum_i\vr_i\cdot\cRe(\vh_i\cdot\bar\vt_i)\notag\\
+  &=\sum_i\vr_i\cdot\cRe(\bar\vh_i\cdot\vt_i)
+    =\sum_i\cRe(\vr_i\cdot\bar\vh_i\cdot\vt_i)=f_r(t,h)
+  \label{eq:lec10-complex-sym}
+\end{align}
+\begin{itemize}
+  \item \textbf{Inverse \cmark:} $\vr_1=\bar\vr_2$. The complex conjugate of
+    $\vr_2=\argmax_{\vr}\cRe(\langle\vh,\vr,\bar\vt\rangle)$ is exactly
+    $\vr_1=\argmax_{\vr}\cRe(\langle\vt,\vr,\bar\vh\rangle)$.
+  \item \textbf{Composition and 1-to-N:} ComplEx shares the same property with
+    DistMult -- \textbf{cannot model composition relations} \xmark; \textbf{can
+    model 1-to-N relations} \cmark.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Comparing KG embedding models}\label{sec:lec10-compare}
+
+\subsection{Expressiveness of the models}\label{sec:lec10-table}
+\slides{60}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{KG completion models: score, embedding space, and the relation
+  patterns each can model (slides~17, 29, 41, 51, 60).}
+  \label{tab:lec10-patterns}
+  \renewcommand{\arraystretch}{1.3}
+  \begin{tabular}{@{}llccccccc@{}}
+    \toprule
+    Model & Score & Embedding & Sym. & Antisym. & Inv. & Compos. & 1-to-N\\
+    \midrule
+    TransE & $-\norm{\vh+\vr-\vt}$ & $\vh,\vt,\vr\in\R^k$
+      & \xmark & \cmark & \cmark & \cmark & \xmark\\
+    TransR & $-\norm{\mM_r\vh+\vr-\mM_r\vt}$
+      & $\begin{array}{@{}c@{}}\vh,\vt\in\R^d,\ \vr\in\R^k,\\ \mM_r\in\R^{k\times d}\end{array}$
+      & \cmark & \cmark & \cmark & \cmark & \cmark\\
+    DistMult & $\langle\vh,\vr,\vt\rangle$ & $\vh,\vt,\vr\in\R^k$
+      & \cmark & \xmark & \xmark & \xmark & \cmark\\
+    ComplEx & $\cRe(\langle\vh,\vr,\bar\vt\rangle)$ & $\vh,\vt,\vr\in\C^k$
+      & \cmark & \cmark & \cmark & \xmark & \cmark\\
+    RotatE & $-\norm{\vh\circ\vr-\vt}$ & $\vh,\vt,\vr\in\C^k$
+      & \cmark & \cmark & \cmark & \cmark & \xmark\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{RotatE} row (slide~60): score $-\norm{\vh\circ\vr-\vt}$ with
+    $\vh,\vt,\vr\in\C^k$; $\circ$ is the \textbf{Hadamard product}, e.g.\
+    $\left[\begin{smallmatrix}3&5&7\\4&9&8\end{smallmatrix}\right]\circ
+    \left[\begin{smallmatrix}1&6&3\\0&2&9\end{smallmatrix}\right]=
+    \left[\begin{smallmatrix}3\times1&5\times6&7\times3\\
+      4\times0&9\times2&8\times9\end{smallmatrix}\right]$.
+  \item \textbf{TransE and RotatE:} they both satisfy a \textbf{weaker notion of
+    1-to-N} -- that many tails can be equidistant to $\vr\ast\vh$ / $\vr+\vh$.
+\end{itemize}
+
+\subsection{KG embeddings in practice}\label{sec:lec10-practice}
+\slides{61--62}
+
+\begin{enumerate}
+  \item Different KGs may have \textbf{drastically different relation
+    patterns}!
+  \item There is not a general embedding that works for all KGs, use the
+    \textbf{table} (\cref{tab:lec10-patterns}) to select models.
+  \item Try \textbf{TransE} for a quick run if the target KG does not have much
+    symmetric relations.
+  \item Then use more expressive models, e.g.\ \textbf{ComplEx}, \textbf{RotatE}
+    (TransE in complex space; Sun et al., \emph{RotatE: Knowledge Graph Embedding
+    by Relational Rotation in Complex Space}, ICLR 2019).
+\end{enumerate}
+\begin{itemize}
+  \item \textbf{Empirical comparison} on FB15k-237 and WN18RR:
+    \cref{tab:lec10-results} (MR = mean rank, MRR = mean reciprocal rank, H10 =
+    Hits@10; $\downarrow$ lower / $\uparrow$ higher is better). RotatE (bold on
+    the slide) is best on every metric; no TransR numbers on the slide.
+\end{itemize}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{Empirical comparison (slide~62).}\label{tab:lec10-results}
+  \begin{tabular}{@{}lcccccc@{}}
+    \toprule
+    & \multicolumn{3}{c}{FB15k-237} & \multicolumn{3}{c}{WN18RR}\\
+    \cmidrule(lr){2-4}\cmidrule(l){5-7}
+    Model & MR$\downarrow$ & MRR$\uparrow$ & H10$\uparrow$
+          & MR$\downarrow$ & MRR$\uparrow$ & H10$\uparrow$\\
+    \midrule
+    TransE   & 357 & .294 & .465 & 3384 & .226 & .501\\
+    TransR   & --  & --   & --   & --   & --   & --\\
+    DistMult & 254 & .241 & .419 & 5110 & .43  & .49\\
+    ComplEx  & 339 & .247 & .428 & 5261 & .44  & .51\\
+    RotatE   & \textbf{177} & \textbf{0.338} & \textbf{0.533}
+             & \textbf{3340} & \textbf{0.476} & \textbf{0.571}\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Summary}\label{sec:lec10-summary}
+\slides{63}
+
+\begin{itemize}
+  \item \textbf{Link prediction / graph completion} is one of the prominent tasks
+    on knowledge graphs.
+  \item TransE / TransR / DistMult / ComplEx: models with different
+    \textbf{embedding space} and \textbf{expressiveness}.
+  \item \textbf{Next:} reasoning in knowledge graphs.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\bigskip\phantomsection
+\addcontentsline{toc}{section}{Lecture 10 at a glance}
+\begin{summarybox}[Lecture 10 at a glance]
+  \begin{itemize}
+    \item \textbf{KG:} heterogeneous graph of entities (typed nodes) and
+      relationships; massive and incomplete (Freebase: 93.8\% of persons without
+      place of birth). \textbf{KG completion:} given (head, relation), predict
+      missing tails.
+    \item \textbf{Shallow embeddings} of entities and relations (no GNN); triple
+      $(h,r,t)$: embedding of $(h,r)$ close to that of $t$; score $f_r(h,t)$ high
+      iff $(h,r,t)$ exists.
+    \item \textbf{Relation patterns:} symmetric / antisymmetric, inverse
+      $r_2(h,t)\Rightarrow r_1(t,h)$, composition
+      $r_1(x,y)\wedge r_2(y,z)\Rightarrow r_3(x,z)$, 1-to-N.
+    \item \textbf{TransE:} $\vh+\vr\approx\vt$, $f_r=-\norm{\vh+\vr-\vt}$; margin
+      loss $\sum[\gamma+d(\vh+\vr,\vt)-d(\vh'+\vr,\vt')]_+$ with corrupted
+      triplets; no symmetric, no 1-to-N.
+    \item \textbf{TransR:} $\vh_\perp=\mM_r\vh$, $\vt_\perp=\mM_r\vt$,
+      $f_r=-\norm{\vh_\perp+\vr-\vt_\perp}$; all five patterns (composition via
+      $\Ker(\mM_{r_3})=\Ker(\mM_{r_1})+\Ker(\mM_{r_2})$).
+    \item \textbf{DistMult:} $f_r=\langle\vh,\vr,\vt\rangle=\sum_i\vh_i\vr_i\vt_i$
+      (diagonal bilinear; cosine of $\vh\cdot\vr$ and $\vt$); symmetric and
+      1-to-N only.
+    \item \textbf{ComplEx:} $f_r=\cRe(\sum_i\vh_i\vr_i\bar\vt_i)$ in $\C^k$;
+      adds antisymmetric and inverse ($\vr_1=\bar\vr_2$); no composition.
+    \item \textbf{In practice:} no embedding works for all KGs; pick by the table;
+      TransE for a quick run, then ComplEx / RotatE; RotatE best on FB15k-237 and
+      WN18RR.
+  \end{itemize}
+\end{summarybox}
