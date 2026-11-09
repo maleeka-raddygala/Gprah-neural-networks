@@ -1,0 +1,1022 @@
+\lecture{11}{GNNs for Recommender Systems}{Tuesday, October 27, 2026}\label{ch:lec11}
+
+% Local notation (lecture 11)
+\providecommand{\mR}{\mathbf{R}}
+\providecommand{\mE}{\mathbf{E}}
+\providecommand{\tA}{\widetilde{\mA}}
+\providecommand{\Eset}{\bm{E}}
+\providecommand{\Eneg}{\bm{E}_{\mathbf{neg}}}
+\providecommand{\Uset}{\bm{U}}
+\providecommand{\Vset}{\bm{V}}
+\providecommand{\Umini}{\bm{U}_{\mathrm{mini}}}
+\providecommand{\Vneg}{\bm{V}_{\mathrm{neg}}}
+\providecommand{\vpos}{\vv_{\mathrm{pos}}}
+\providecommand{\vneg}{\vv_{\mathrm{neg}}}
+\providecommand{\Efinal}{\mE_{\mathrm{final}}}
+
+% Local TikZ styles (prefix lec11)
+\tikzset{
+  lec11user/.style={circle, draw=ForestGreen!85!black, very thick, fill=white,
+                    minimum size=2.6mm, inner sep=0pt},
+  lec11item/.style={circle, draw=RoyalBlue, very thick, fill=white,
+                    minimum size=2.6mm, inner sep=0pt},
+  lec11e/.style={thick, magenta!75!black},
+  lec11faint/.style={thick, magenta!20},
+  lec11neg/.style={thick, densely dotted, black!50},
+  lec11sc/.style={thick, densely dashed, orange!85!black},
+  lec11lbl/.style={font=\scriptsize\sffamily},
+  lec11num/.style={font=\scriptsize, inner sep=0.5pt},
+  lec11blk/.style={draw=black!70, thick, fill=SkyBlue!30, align=center,
+                   font=\scriptsize\sffamily, inner sep=3pt, minimum height=7mm},
+  lec11bar/.style={minimum width=1.1mm, minimum height=3.6mm, inner sep=0pt},
+  lec11ga/.style={thick, ForestGreen!85!black, -{Stealth[length=1.6mm]}},
+  lec11ba/.style={thick, blue!80!black, -{Stealth[length=1.6mm]}},
+  lec11pin/.style={circle, fill=black, minimum size=2.4mm, inner sep=0pt},
+  lec11board/.style={rectangle, draw=black!60, minimum size=3mm, inner sep=0pt},
+  lec11agg/.style={draw=black!40, fill=Goldenrod!35, font=\tiny\sffamily,
+                   inner sep=1.5pt},
+  lec11big/.style={-{Triangle[length=2.5mm, width=4mm]}, line width=2.5mm},
+  lec11emb/.pic={
+    \fill[ForestGreen!30] (0,0) rectangle (0.45,0.5);
+    \fill[SkyBlue!55] (0,-0.5) rectangle (0.45,0);
+    \draw[thick, black!70] (0,-0.5) rectangle (0.45,0.5);},
+  lec11atil/.pic={
+    \fill[Tan!45] (0,0) rectangle (0.5,0.5);
+    \fill[Tan!45] (-0.5,-0.5) rectangle (0,0);
+    \draw[thick, black!70] (-0.5,-0.5) rectangle (0.5,0.5);
+    \draw[black!70] (0,-0.5) -- (0,0.5) (-0.5,0) -- (0.5,0);
+    \node[font=\tiny] at (-0.25,0.25) {$\mathbf{0}$};
+    \node[font=\tiny] at (0.25,-0.25) {$\mathbf{0}$};},
+}
+
+\textbf{Outline.} Recommender systems: task and evaluation (Recall@$K$) $\to$
+embedding-based models and surrogate losses (binary, BPR) $\to$ Neural Graph
+Collaborative Filtering (NGCF) $\to$ LightGCN $\to$ PinSAGE.
+
+% ---------------------------------------------------------------------
+\section{Recommender systems: task and evaluation}\label{sec:lec11-task}
+
+\subsection{Recommendation as a bipartite graph}\label{sec:lec11-bipartite}
+\slides{4--6}
+
+\begin{itemize}
+  \item \textbf{Information explosion in the era of Internet:} 10K+ movies in
+    Netflix; 12M products in Amazon (350m on Marketplace); 70M+ music tracks in
+    Spotify; 10B+ videos on YouTube; 200B+ pins (images) in Pinterest.
+  \item \term{Personalized recommendation} (i.e., suggesting a small number of
+    interesting items for each user) is critical for users to effectively
+    explore the content of their interest.
+  \item Recommender system = \term{bipartite graph} (\cref{ch:lec01}): two node
+    types, \textbf{users} and \textbf{items}; \textbf{edges} connect users and
+    items = user-item interaction (e.g., click, purchase, review etc.), often
+    with a \textbf{timestamp} (timing of the interaction).
+  \item \textbf{Task.} Given past user-item interactions, predict new items
+    each user will interact in the future $\Rightarrow$ a \textbf{link
+    prediction} problem (predict new user-item interaction edges given the past
+    edges). For $u\in\Uset$, $v\in\Vset$, we need a real-valued \textbf{score}
+    $f(u,v)$.
+\end{itemize}
+
+\subsection{Modern recommender system}\label{sec:lec11-modern}
+\slides{7}
+
+\begin{itemize}
+  \item \textbf{Problem:} cannot evaluate $f(u,v)$ for every user $u$ -- item
+    $v$ pair (example: $f(u,v)=z_u\cdot z_v$). \textbf{Solution: 2-stage
+    process} (\cref{fig:lec11-pipeline}): \textbf{candidate generation} (cheap,
+    fast) $\to$ \textbf{ranking} (slow, accurate).
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    \node[cylinder, shape border rotate=90, aspect=0.22, draw=black!70, thick,
+          fill=SkyBlue!25, minimum height=1.7cm, minimum width=2.4cm,
+          align=center, font=\scriptsize\sffamily] (db) at (0,0)
+          {Embeddings of\\millions of items};
+    \node[lec11blk] (ue) at (4.6,0.65) {User embedding};
+    \node[lec11blk] (cand) at (4.6,-0.65) {1000 candidate items};
+    \node[lec11blk] (rank) at (8.6,-0.65) {Score/rank items\\via $f(u,v)$};
+    \node[font=\scriptsize\sffamily\bfseries] (rec) at (8.6,1.75)
+      {Recommendations};
+    \draw[arrow, Goldenrod!90!black] (ue) -- node[above, lec11lbl, black]
+      {NN engine} (db.east |- ue);
+    \draw[arrow, Goldenrod!90!black] (db.east |- cand) -- (cand);
+    \draw[arrow, Goldenrod!90!black] (cand) -- (rank);
+    \draw[arrow, Goldenrod!90!black] (rank) -- node[right, lec11lbl, black,
+      align=left] {Return top-10 items\\by score $f(u,v)$} (rec);
+    \draw[arrow, Goldenrod!90!black] (4.6,1.9) node[above,
+      font=\scriptsize\sffamily\bfseries] {Search} -- (ue);
+    \draw[thick, ForestGreen] (-1.5,-1.35) rectangle (11.3,1.3);
+    \draw[decorate, decoration={brace, mirror, amplitude=4pt}, thick, black!60]
+      (-1.3,-1.5) -- node[below=3pt, lec11lbl] {candidate generation} (5.9,-1.5);
+    \draw[decorate, decoration={brace, mirror, amplitude=4pt}, thick, black!60]
+      (7.4,-1.5) -- node[below=3pt, lec11lbl] {ranking} (9.8,-1.5);
+  \end{tikzpicture}
+  \caption{Modern recommender system: candidate generation via a
+  nearest-neighbour (NN) engine, then ranking by $f(u,v)$ (slide~7).}
+  \label{fig:lec11-pipeline}
+\end{figure}
+
+\subsection{Top-\texorpdfstring{$K$}{K} recommendation and Recall@\texorpdfstring{$K$}{K}}\label{sec:lec11-recall}
+\slides{8--10}
+
+\begin{itemize}
+  \item For each user, we recommend $K$ items: for recommendation to be
+    effective, \textbf{$K$ needs to be much smaller than the total number of
+    items} (up to billions); $K$ is typically in the order of 10--100.
+  \item \textbf{Goal:} include as many \term{positive items} (= items that the
+    user will interact with in the future) as possible in the top-$K$
+    recommended items. \textbf{Evaluation metric:} Recall@$K$.
+\end{itemize}
+
+\begin{definition}[Recall@$K$]\label{def:lec11-recall}
+  For each user $u$: $P_u$ = set of positive items the user will interact in
+  the future; $R_u$ = set of items recommended by the model (in top-$K$
+  recommendation, $|R_u|=K$; items that the user has already interacted are
+  excluded).
+  \begin{equation}\label{eq:lec11-recall}
+    \text{Recall@}K\text{ for user }u = \frac{|P_u\cap R_u|}{|P_u|}
+  \end{equation}
+  Higher value $\Rightarrow$ more positive items are recommended in top-$K$
+  for $u$ (\cref{fig:lec11-topk}b). The \textbf{final Recall@$K$} averages the
+  recall values across all users.
+\end{definition}
+
+\subsection{Recommendations with LLMs?}\label{sec:lec11-llm}
+\slides{11}
+
+\begin{itemize}
+  \item Same picture (user embedding $\to$ NN engine over embeddings of
+    millions of items $\to$ recommendations): \textbf{GNN} to embed users \&
+    products vs.\ \textbf{LLM} to textify products and embed them (user emb.\
+    is avg.\ of purchased product embs.).
+  \item \textbf{H\&M fashion recommendation} (\cref{tab:lec11-hm}): GNN 15x
+    better MAP@12, 3x precision, 40x recall, 2x F1. More info: \emph{Do Large
+    Language Models make accurate personalized recommendations?}
+\end{itemize}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{H\&M fashion recommendation, LLM vs.\ GNN (slide~11).}
+  \label{tab:lec11-hm}
+  \begin{tabular}{@{}lllll@{}}
+    \toprule
+    & MAP@12 & PRECISION@12 & RECALL@12 & F1@12\\
+    \midrule
+    LLM & 0.00190 ($-$93.33\%) & 0.00329 ($-$67.84\%) & 0.00119 ($-$97.73\%)
+        & 0.0071 ($-$54.60\%)\\
+    GNN & 0.02856 (15x better) & 0.01023 (3x) & 0.05234 (40x) & 0.01564 (2x)\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------------
+\section{Embedding-based models}\label{sec:lec11-emb}
+
+\subsection{Notation, score function, embedding-based models}\label{sec:lec11-notation}
+\slides{13--15}
+
+\begin{itemize}
+  \item \textbf{Notation:} $\Uset$: a set of all users; $\Vset$: a set of all
+    items; $\Eset$: a set of observed user-item interactions,
+    \begin{equation}\label{eq:lec11-E}
+      \Eset=\{(u,v)\mid u\in\Uset,\ v\in\Vset,\ u\text{ interacted with }v\}
+    \end{equation}
+  \item \textbf{Scoring function:} for $u\in\Uset$, $v\in\Vset$, a real-valued
+    scalar $\mathrm{score}(u,v)$; the \textbf{$K$ items with the largest scores
+    for a given user $u$} (excluding already-interacted items) are recommended.
+    Example (\cref{fig:lec11-topk}a): for $K=2$, recommended items for $u$ are
+    $\{v_1,v_3\}$.
+  \item \term{Embedding-based models}: $\vu\in\R^D$ is the $D$-dimensional
+    embedding of user $u\in\Uset$, $\vv\in\R^D$ that of item $v\in\Vset$;
+    $f_\theta(\cdot,\cdot):\R^D\times\R^D\to\R$ is a parametrized function.
+    Then
+    \begin{equation}\label{eq:lec11-score}
+      \mathrm{score}(u,v)\equiv f_\theta(\vu,\vv)
+    \end{equation}
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    % (a) scoring example
+    \begin{scope}
+      \node[font=\scriptsize\sffamily\bfseries, ForestGreen!85!black]
+        at (0,4.7) {User $\Uset$};
+      \node[font=\scriptsize\sffamily\bfseries, RoyalBlue]
+        at (3.6,4.7) {Item $\Vset$};
+      \foreach \i/\y in {1/3.6, 2/2.7, 4/0.9, 5/0.0}
+        \node[lec11user] (U\i) at (0,\y) {};
+      \node[circle, fill=ForestGreen!85!black, minimum size=3mm, inner sep=0pt]
+        (U3) at (0,1.8) {};
+      \node[left=2pt of U3] {$u$};
+      \foreach \j/\y in {0/4.2, 1/3.35, 2/2.5, 3/1.65, 4/0.8, 5/-0.05} {
+        \node[lec11item] (V\j) at (3.6,\y) {};
+        \node[right=1pt of V\j, font=\small] {$v_\j$};
+      }
+      \draw[lec11faint] (U1)--(V0) (U1)--(V3) (U2)--(V1) (U2)--(V2)
+        (U4)--(V3) (U5)--(V3) (U5)--(V4);
+      \draw[thick, magenta!45] (U3)--(V5);
+      \foreach \j/\s in {0/2.0, 1/3.0, 2/-2.3, 3/4.0, 4/0.7}
+        \draw[lec11sc] (U3) -- node[pos=0.62, lec11num, fill=white,
+          text=orange!85!black] {$\s$} (V\j);
+      \node[lec11lbl, RoyalBlue, anchor=west] at (4.25,-0.05)
+        {already-interacted item};
+      \node[lec11lbl] at (1.8,-0.75) {$K=2$: recommended items for $u$ =
+        $\{v_1,v_3\}$};
+      \node[lec11lbl] at (1.8,-1.3) {(a) score$(u,v_j)$ (sl.~14)};
+    \end{scope}
+    % (b) Venn diagram
+    \begin{scope}[xshift=10.6cm, yshift=2.0cm]
+      \fill[magenta!15] (-1.2,0) ellipse (2.15 and 1.15);
+      \draw[thick, magenta!80!black] (-1.2,0) ellipse (2.15 and 1.15);
+      \draw[thick, densely dotted, blue] (1.2,0) ellipse (2.15 and 1.15);
+      \node[magenta!80!black] at (-2.9,1.3) {$P_u$};
+      \node[blue] at (2.9,1.3) {$R_u$};
+      \node[lec11lbl, magenta!80!black, align=center] at (-2.1,0)
+        {Positive\\items};
+      \node[lec11lbl, blue, align=center] at (2.1,0) {Recommended\\items};
+      \node[font=\scriptsize] at (0,0) {$P_u\cap R_u$};
+      \node[lec11lbl] at (0,-3.3) {(b) Recall@$K=|P_u\cap R_u|/|P_u|$
+        (sl.~9--10)};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{Top-$K$ recommendation: (a) scoring example; (b) positive vs.\
+  recommended items (slides~9, 10, 14).}
+  \label{fig:lec11-topk}
+\end{figure}
+
+\subsection{Training objective and surrogate losses}\label{sec:lec11-surrogate}
+\slides{16--17}
+
+\begin{itemize}
+  \item Embedding-based models have \textbf{three kinds of parameters}: an
+    encoder to generate user embeddings $\{\vu\}_{u\in U}$; an encoder to
+    generate item embeddings $\{\vv\}_{v\in V}$; score function
+    $f_\theta(\cdot,\cdot)$.
+  \item \textbf{Training objective:} optimize the model parameters to achieve
+    high recall@$K$ on \emph{seen} (i.e., \emph{training}) user-item
+    interactions; we hope this leads to high recall@$K$ on \emph{unseen}
+    (i.e., \emph{test}) interactions.
+  \item Recall@$K$ is \textbf{\emph{not} differentiable} $\Rightarrow$
+    \emph{cannot} apply efficient gradient-based optimization $\Rightarrow$ two
+    widely-used \term{surrogate loss functions}: \textbf{binary loss} and
+    \textbf{Bayesian Personalized Ranking (BPR) loss}. Surrogate losses are
+    \textbf{differentiable} and should \textbf{align well with the original
+    training objective}.
+\end{itemize}
+
+\subsection{Binary loss}\label{sec:lec11-binary}
+\slides{18--19}
+
+\begin{itemize}
+  \item \textbf{Positive edges:} $\Eset$ (i.e., observed/training user-item
+    interactions). \textbf{Negative edges:}
+    \begin{equation}\label{eq:lec11-Eneg}
+      \Eneg=\{(u,v)\mid(u,v)\notin E,\ u\in\Uset,\ v\in\Vset\}
+    \end{equation}
+  \item \textbf{Sigmoid function} $\sigma(x)\equiv\frac{1}{1+\exp(-x)}$: maps
+    real-valued scores into binary likelihood scores, i.e., in the range of
+    $[0,1]$.
+  \item \term{Binary loss}: binary classification of positive/negative edges
+    using $\sigma(f_\theta(\vu,\vv))$ (each term can be approximated using a
+    \textbf{mini-batch} of positive/negative edges during training):
+\end{itemize}
+\begin{equation}\label{eq:lec11-binary}
+  -\frac{1}{|\Eset|}\sum_{(u,v)\in\Eset}\log\big(\sigma(f_\theta(\vu,\vv))\big)
+  -\frac{1}{|\Eneg|}\sum_{(u,v)\in\Eneg}\log\big(1-\sigma(f_\theta(\vu,\vv))\big)
+\end{equation}
+\begin{itemize}
+  \item Pushes the scores of \textbf{positive edges} higher than those of
+    \textbf{negative edges}; aligns with the training recall metric since
+    positive edges need to be recalled.
+\end{itemize}
+
+\subsection{Issue with binary loss}\label{sec:lec11-issue}
+\slides{20--23}
+
+\begin{itemize}
+  \item \textbf{Issue:} the scores of \textbf{\emph{ALL}} positive edges are
+    pushed higher than those of \textbf{\emph{ALL}} negative edges
+    $\Rightarrow$ unnecessarily penalizes model predictions even if the
+    training recall metric is perfect.
+\end{itemize}
+
+\begin{example}[Two users, two items (slides~21, 23)]
+  Metric: Recall@1; scores of every user-item pair in \cref{fig:lec11-binary}.
+  Training \textbf{Recall@1 is 1.0} (perfect score): $v_0$ (resp.\ $v_1$) is
+  correctly recommended to $u_0$ (resp.\ $u_1$). However, \textbf{the binary
+  loss would still penalize the model prediction}: the negative $(u_1,v_0)$
+  edge (2.0) gets a higher score than the positive edge $(u_0,v_0)$ (1.0).
+\end{example}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    \node[font=\scriptsize\sffamily\bfseries, ForestGreen!85!black]
+      at (0,2.3) {User};
+    \node[font=\scriptsize\sffamily\bfseries, RoyalBlue] at (3.4,2.5) {Item};
+    \node[lec11user] (u0) at (0,1.6) {};  \node[left=1pt of u0] {$u_0$};
+    \node[lec11user] (u1) at (0,0.3) {};  \node[left=1pt of u1] {$u_1$};
+    \node[lec11item] (v0) at (3.4,1.9) {}; \node[right=1pt of v0] {$v_0$};
+    \node[lec11item] (v1) at (3.4,0.0) {}; \node[right=1pt of v1] {$v_1$};
+    \draw[lec11e] (u0) -- node[above, lec11num] {1.0} (v0);
+    \draw[lec11e] (u1) -- node[below, lec11num] {4.0} (v1);
+    \draw[lec11neg] (u0) -- node[pos=0.24, lec11num, fill=white] {$-1.0$} (v1);
+    \draw[lec11neg] (u1) -- node[pos=0.24, lec11num, fill=white] {$2.0$} (v0);
+    \draw[lec11e] (5.0,1.35) -- (5.6,1.35)
+      node[right, lec11lbl, black] {positive edge (observed interaction)};
+    \draw[lec11neg] (5.0,0.65) -- (5.6,0.65)
+      node[right, lec11lbl, black] {negative edge (unobserved interaction)};
+  \end{tikzpicture}
+  \caption{Binary-loss issue: Recall@1 is perfect, but the negative edge
+  $(u_1,v_0)=2.0$ outscores the positive edge $(u_0,v_0)=1.0$ (slides~21,
+  23).}
+  \label{fig:lec11-binary}
+\end{figure}
+
+\begin{keyidea}
+  \textbf{Key insight (slide~22):} the binary loss is
+  \textbf{non-personalized} -- positive/negative edges are considered
+  \emph{across ALL users at once}; the recall metric is inherently
+  \textbf{personalized (defined for each user)} $\Rightarrow$ the binary loss
+  is overly-stringent for the personalized recall metric.
+  \textbf{Lesson learned (slide~23):} define the surrogate loss in a
+  \textbf{personalized} manner -- \textbf{for each user}, scores of positive
+  items higher than those of negative items; we do \emph{not} care about the
+  score ordering across users. \textbf{BPR loss achieves this!}
+\end{keyidea}
+
+\subsection{Bayesian Personalized Ranking (BPR) loss}\label{sec:lec11-bpr}
+\slides{24--26}
+
+\begin{itemize}
+  \item \term{BPR loss}: a personalized surrogate loss that aligns better with
+    the recall@$K$ metric. For each user $u^*\in\Uset$, define the
+    \term{rooted positive/negative edges}:
+    \begin{equation}\label{eq:lec11-rooted}
+      \Eset(u^*)\equiv\{(u^*,v)\mid(u^*,v)\in\Eset\},\qquad
+      \Eneg(u^*)\equiv\{(u^*,v)\mid(u^*,v)\in\Eneg\}
+    \end{equation}
+  \item Note: ``Bayesian'' is not essential to the loss definition; the
+    original paper [Rendle et al.\ 2009] considers the Bayesian prior over
+    parameters (essentially a parameter regularization), omitted here.
+  \item \textbf{Training objective:} for each user $u^*$, scores of rooted
+    positive edges $\Eset(u^*)$ higher than those of rooted negative edges
+    $\Eneg(u^*)$ $\Rightarrow$ aligns with the personalized nature of the
+    recall metric.
+  \item \textbf{BPR loss for user $u^*$:}
+    $f_\theta(\vu^*,\vpos)-f_\theta(\vu^*,\vneg)$ is \textbf{encouraged to be
+    positive for each user} (= positive edge score is higher than negative edge
+    score); the double sum can be approximated using a mini-batch.
+\end{itemize}
+\begin{equation}\label{eq:lec11-bpr-user}
+  \begin{split}
+  \mathrm{Loss}(u^*)=\frac{1}{|E(u^*)|\cdot|\Eneg(u^*)|}
+  &\sum_{(u^*,v_{\mathrm{pos}})\in\Eset(u^*)}\ \
+  \sum_{(u^*,v_{\mathrm{neg}})\in\Eneg(u^*)}\\
+  &\qquad
+  -\log\Big(\sigma\big(f_\theta(\vu^*,\vpos)-f_\theta(\vu^*,\vneg)\big)\Big)
+  \end{split}
+\end{equation}
+\begin{equation}\label{eq:lec11-bpr}
+  \text{Final BPR Loss:}\quad\frac{1}{|\Uset|}\sum_{u^*\in\Uset}\mathrm{Loss}(u^*)
+\end{equation}
+\begin{itemize}
+  \item \textbf{Mini-batch training:} sample a subset of users
+    $\Umini\subset\Uset$; for each $u^*\in\Umini$ sample one positive item
+    $v_{\mathrm{pos}}$ and a set of sampled negative items
+    $V_{\mathrm{neg}}=\{v_{\mathrm{neg}}\}$. Mini-batch loss (outer factor:
+    average over users in the mini-batch):
+\end{itemize}
+\begin{equation}\label{eq:lec11-bpr-mini}
+  \frac{1}{|\Umini|}\sum_{u^*\in\Umini}\frac{1}{|\Vneg|}
+  \sum_{v_{\mathrm{neg}}\in\Vneg}
+  -\log\Big(\sigma\big(f_\theta(u^*,\vpos)-f_\theta(u^*,\vneg)\big)\Big)
+\end{equation}
+
+\subsection{Why embedding models work; GNNs for recsys}\label{sec:lec11-why}
+\slides{27--30}
+
+\begin{itemize}
+  \item \textbf{So far:} Recall@$K$ (personalized recommendation metric);
+    embedding-based models (\textbf{user encoder}, \textbf{item encoder},
+    \textbf{score function} to predict the user-item interaction likelihood);
+    surrogate losses for high recall. They achieved \textbf{SoTA} in
+    recommender systems -- \textbf{why do they work so well?}
+  \item \textbf{Underlying idea:} \term{collaborative filtering} -- recommend
+    items for a user by \textbf{collecting preferences of many other similar
+    users}; \textbf{similar users tend to prefer similar items} (figure:
+    similar users $u$, $u'$ share items interacted by both $\Rightarrow$ a
+    \textbf{likely edge} from $u$ to another item of $u'$). \textbf{Key
+    question:} how to capture similarity between users/items?
+  \item Embedding-based models can capture similarity of users/items:
+    \textbf{low-dimensional embeddings \emph{cannot} simply memorize all
+    user-item interaction data} $\Rightarrow$ forced to \textbf{capture
+    similarity between users/items to fit the data} $\Rightarrow$ effective
+    prediction on \emph{unseen} user-item interactions.
+  \item \textbf{This lecture:} (1) \textbf{NGCF} [Wang et al.\ 2019] and (2)
+    \textbf{LightGCN} [He et al.\ 2020] improve the conventional collaborative
+    filtering models (i.e., shallow encoders) by explicitly modeling graph
+    structure using GNNs (assume no user/item features); \textbf{PinSAGE}
+    [Ying et al.\ 2018] uses GNNs to generate high-quality embeddings by
+    simultaneously capturing rich node attributes (e.g., images) and the graph
+    structure.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Neural Graph Collaborative Filtering (NGCF)}\label{sec:lec11-ngcf}
+
+\subsection{Conventional collaborative filtering and its limitations}\label{sec:lec11-cf}
+\slides{32--34}
+
+\begin{itemize}
+  \item \textbf{Conventional collaborative filtering} = \textbf{shallow
+    encoders} (\cref{ch:lec02}): no user/item features; for every $u\in\Uset$,
+    $v\in\Vset$, shallow learnable embeddings $\vu,\vv\in\R^D$; score
+    \begin{equation}\label{eq:lec11-mf}
+      f(\vu,\vv)\equiv\vz_{\vu}\tp\vz_{\vv}
+    \end{equation}
+  \item \textbf{Limitations of shallow encoders:} the model itself does
+    \textbf{\emph{not explicitly}} capture graph structure -- it is
+    \textbf{\emph{only implicitly}} captured in the training objective; only the
+    \textbf{first-order graph structure} (i.e., edges) is captured there;
+    \textbf{high-order graph structure} (e.g., $K$-hop paths between two nodes)
+    is \emph{not} explicitly captured.
+  \item \textbf{Motivation:} we want a model that \textbf{explicitly captures
+    graph structure} (beyond implicitly through the training objective) and
+    \textbf{high-order graph structure} (beyond the first-order edge
+    connectivity structure). \textbf{GNNs are a natural approach to achieve
+    both!} NGCF [Wang et al.\ 2019]; LightGCN [He et al.\ 2020], a simplified
+    and improved version of NGCF.
+\end{itemize}
+
+\subsection{NGCF framework and model}\label{sec:lec11-ngcf-model}
+\slides{35--40}
+
+\begin{itemize}
+  \item NGCF \emph{explicitly} incorporates high-order graph structure when
+    generating user/item embeddings. \textbf{Key idea:} use a GNN to generate
+    \textbf{graph-aware} user/item embeddings (\cref{fig:lec11-ngcf}).
+  \item \textbf{Given:} user-item bipartite graph. \textbf{Framework:} prepare
+    a shallow learnable embedding for each node $\to$ multi-layer GNNs
+    propagate embeddings along the bipartite graph (high-order graph structure
+    is captured) $\to$ final embeddings are \emph{explicitly} graph-aware.
+    \textbf{Two kinds of learnable params are jointly learned:} shallow
+    user/item embeddings; GNN's parameters.
+  \item \textbf{Initial node embeddings:} the shallow learnable embeddings are
+    the initial node features: $\vh_u^{(0)}$ = user's shallow embedding
+    ($u\in\Uset$), $\vh_v^{(0)}$ = item's shallow embedding ($v\in\Vset$).
+  \item \textbf{Neighbor aggregation} (\cref{ch:lec04}): iteratively update
+    node embeddings using neighboring embeddings:
+\end{itemize}
+\begin{align}
+  \vh_v^{(k+1)} &= \mathrm{COMBINE}\Big(\vh_v^{(k)},\,
+    \mathrm{AGGR}\big(\{\vh_u^{(k)}\}_{u\in N(v)}\big)\Big)
+    \label{eq:lec11-ngcf-item}\\
+  \vh_u^{(k+1)} &= \mathrm{COMBINE}\Big(\vh_u^{(k)},\,
+    \mathrm{AGGR}\big(\{\vh_v^{(k)}\}_{v\in N(u)}\big)\Big)
+    \label{eq:lec11-ngcf-user}
+\end{align}
+\begin{itemize}
+  \item \textbf{High-order graph structure is captured through iterative
+    neighbor aggregation.} Different architecture choices are possible:
+    $\mathrm{AGGR}(\cdot)$ can be $\mathrm{MEAN}(\cdot)$;
+    $\mathrm{COMBINE}(\vx,\vy)$ can be
+    $\mathrm{ReLU}(\mathrm{Linear}(\mathrm{Concat}(\vx,\vy)))$.
+  \item \textbf{Final embeddings:} after $K$ rounds of neighbor aggregation,
+    $\vh_u^{(K)}$, $\vh_v^{(K)}$; for all $u\in\Uset$, $v\in\Vset$ set
+    $\vu\leftarrow\vh_u^{(K)}$, $\vv\leftarrow\vh_v^{(K)}$. \textbf{Score
+    function} is the inner product:
+    \begin{equation}\label{eq:lec11-ngcf-score}
+      \mathrm{score}(u,v)=\vu\tp\vv
+    \end{equation}
+  \item \textbf{Summary (slide~40):} conventional CF uses shallow user/item
+    embeddings -- they do \emph{not explicitly} model graph structure, and the
+    training objective does not model high-order graph structure. NGCF uses a
+    GNN to propagate the shallow embeddings $\Rightarrow$ embeddings are
+    explicitly aware of high-order graph structure.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    \foreach \p/\xs in {a/0, b/4.6, c/9.2} {
+      \begin{scope}[xshift=\xs cm]
+        \foreach \i/\y in {1/2.4, 2/1.7, 3/1.0, 4/0.3, 5/-0.4}
+          \node[lec11user] (\p u\i) at (0.4,\y) {};
+        \foreach \j/\y in {1/2.7, 2/2.05, 3/1.4, 4/0.75, 5/0.1, 6/-0.55}
+          \node[lec11item] (\p v\j) at (2.4,\y) {};
+      \end{scope}
+    }
+    % bars
+    \foreach \p/\xs/\c in {a/0/black!30, b/4.6/black!30, c/9.2/orange!80!black} {
+      \foreach \i/\y in {1/2.4, 2/1.7, 3/1.0, 4/0.3, 5/-0.4}
+        \node[lec11bar, fill=\c] at (\xs-0.05,\y) {};
+      \foreach \j/\y in {1/2.7, 2/2.05, 3/1.4, 4/0.75, 5/0.1, 6/-0.55}
+        \node[lec11bar, fill=\c] at (\xs+2.85,\y) {};
+    }
+    % same graph as slides 5, 32, 35--39
+    \foreach \p in {a, c}
+      \draw[lec11e] (\p u1)--(\p v1) (\p u1)--(\p v4) (\p u2)--(\p v2)
+        (\p u2)--(\p v3) (\p u3)--(\p v6) (\p u4)--(\p v4) (\p u5)--(\p v4)
+        (\p u5)--(\p v5);
+    % slide 38: items -> user 2 (green), users -> item 4 (blue)
+    \draw[lec11faint] (bu1)--(bv1) (bu3)--(bv6) (bu5)--(bv5);
+    \draw[lec11ga] (bv2) -- (bu2);
+    \draw[lec11ga] (bv3) -- (bu2);
+    \draw[lec11ba] (bu1) -- (bv4);
+    \draw[lec11ba] (bu4) -- (bv4);
+    \draw[lec11ba] (bu5) -- (bv4);
+    \node[lec11lbl, align=center] at (1.4,-1.3)
+      {(a) initial shallow\\embeddings $\vh^{(0)}$};
+    \node[lec11lbl, align=center] at (6.0,-1.3)
+      {(b) GNN propagates embeddings:\\updated
+      \textcolor{ForestGreen!85!black}{user} /
+      \textcolor{blue!80!black}{item} embeddings};
+    \node[lec11lbl, align=center] at (10.6,-1.3)
+      {(c) graph-aware final\\embeddings $\vh^{(K)}$};
+    \foreach \x in {3.35, 7.95}
+      \draw[lec11big, SkyBlue!70] (\x,1.05) -- ++(0.75,0);
+    \node[lec11lbl, ForestGreen!85!black] at (0.4,2.95) {User};
+    \node[lec11lbl, RoyalBlue] at (2.4,3.2) {Item};
+  \end{tikzpicture}
+  \caption{NGCF: shallow embeddings are propagated by a multi-layer GNN along
+  the bipartite graph into graph-aware embeddings (slides~35--39).}
+  \label{fig:lec11-ngcf}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\section{LightGCN}\label{sec:lec11-lightgcn}
+
+\subsection{Motivation}\label{sec:lec11-lgcn-motiv}
+\slides{42--43}
+
+\begin{itemize}
+  \item \textbf{Recall:} NGCF jointly learns shallow user/item embeddings and
+    GNN's parameters.
+  \item \textbf{Observation:} shallow learnable embeddings are already quite
+    expressive -- learned for every (user/item) node; most of the parameter
+    counts are in shallow embeddings when $N$ (\#nodes) $\gg D$ (embedding
+    dimensionality): \textbf{shallow embeddings $O(ND)$}, \textbf{GNN
+    $O(D^2)$} $\Rightarrow$ the GNN parameters may not be so essential for
+    performance.
+  \item \textbf{Can we simplify the GNN used in NGCF} (e.g., remove its
+    learnable parameters)? \textbf{Answer:} Yes! \textbf{Bonus:} simplification
+    improves the recommendation performance!
+  \item \textbf{Overview of the idea:} adjacency matrix for a bipartite graph
+    $\to$ matrix formulation of GCN $\to$ simplification of GCN by removing
+    non-linearity (related: SGC for scalable GNN [Wu et al.\ 2019]).
+\end{itemize}
+
+\subsection{Adjacency, embedding and diffusion matrices}\label{sec:lec11-matrices}
+\slides{44--45}
+
+\begin{itemize}
+  \item \textbf{Adjacency matrix} of an (undirected) bipartite graph (users,
+    then items), $\mR_{uv}=1$ if user $u$ interacts with item $v$,
+    $\mR_{uv}=0$ otherwise; \textbf{shallow embedding matrix} $\mE$ = user
+    embeddings stacked above item embeddings (\cref{fig:lec11-lightgcn}):
+    \begin{equation}\label{eq:lec11-adj}
+      \mA=\begin{bmatrix}\mathbf{0}&\mR\\ \mR\tp&\mathbf{0}\end{bmatrix}
+    \end{equation}
+  \item \textbf{Define: the diffusion matrix.} $\mD$ = degree matrix of $\mA$;
+    \term{normalized adjacency matrix} (note: different from the original GCN,
+    \textbf{self-connection is omitted here}):
+    \begin{equation}\label{eq:lec11-diffusion}
+      \tA\equiv\mD^{-1/2}\mA\mD^{-1/2}
+    \end{equation}
+  \item $\mE^{(k)}$ = embedding matrix at $k$-th layer (each row stores a node
+    embedding). Each layer of GCN's aggregation in matrix form (cf.\
+    \cref{ch:lec03}):
+\end{itemize}
+\begin{equation}\label{eq:lec11-gcn-matrix}
+  \mE^{(k+1)}=\mathrm{ReLU}\big(\underbrace{\tA\mE^{(k)}}_{\substack{\text{neighbor}\\
+  \text{aggregation}}}\,\underbrace{\mW^{(k)}}_{\substack{\text{learnable linear}\\
+  \text{transformation}}}\big)
+\end{equation}
+
+\subsection{Simplifying GCN}\label{sec:lec11-simplify}
+\slides{46--47}
+
+\begin{itemize}
+  \item \textbf{Simplify GCN by removing ReLU non-linearity} (original idea
+    from SGC [Wu et al.\ 2019]): $\mE^{(k+1)}=\tA\mE^{(k)}\mW^{(k)}$. The final
+    node embedding matrix (set $\mE$ as input embedding $\mE^{(0)}$):
+\end{itemize}
+\begin{align}
+  \mE^{(K)} &= \tA\,\mE^{(K-1)}\mW^{(K-1)}
+   = \tA\big(\tA\mE^{(K-2)}\mW^{(K-2)}\big)\mW^{(K-1)}\notag\\
+  &= \tA\Big(\tA\big(\cdots\big(\tA\mE^{(0)}\mW^{(0)}\big)\cdots\big)
+     \mW^{(K-2)}\Big)\mW^{(K-1)}
+   = \tA^K\mE\,\big(\mW^{(0)}\cdots\mW^{(K-1)}\big)
+  \label{eq:lec11-unroll}
+\end{align}
+\begin{itemize}
+  \item \textbf{Removing ReLU significantly simplifies GCN!}
+    \begin{equation}\label{eq:lec11-diffuse}
+      \mE^{(K)}=\underbrace{\tA^K\mE}_{\substack{\text{diffusing node
+      embeddings}\\\text{along the graph}}}\mW,\qquad
+      \mW\equiv\mW^{(0)}\cdots\mW^{(K-1)}
+    \end{equation}
+  \item \textbf{Algorithm:} apply $\mE\leftarrow\tA\mE$ for $K$ times; each
+    matrix multiplication diffuses the current embeddings to their one-hop
+    neighbors. \textbf{Note:} $\tA^K$ is dense and never gets materialized;
+    the iterative matrix-vector product is used to compute $\tA^K\mE$.
+\end{itemize}
+
+\subsection{Multi-scale diffusion}\label{sec:lec11-multiscale}
+\slides{48}
+
+\begin{itemize}
+  \item \term{Multi-scale diffusion} -- includes embeddings diffused at multiple
+    hop scales:
+    \begin{equation}\label{eq:lec11-multiscale}
+      \alpha_0E^{(0)}+\alpha_1E^{(1)}+\alpha_2E^{(2)}+\cdots+\alpha_KE^{(K)}
+    \end{equation}
+  \item $\alpha_0E^{(0)}=\alpha_0\tA^0E^{(0)}$ acts as a self-connection (that
+    is omitted in the definition of $\tA$); the coefficients
+    $\alpha_0,\dots,\alpha_K$ are hyper-parameters. For simplicity, LightGCN
+    uses the \textbf{uniform coefficient}:
+    \begin{equation}\label{eq:lec11-alpha}
+      \alpha_k=\frac{1}{K+1}\qquad\text{for }k=0,\dots,K
+    \end{equation}
+\end{itemize}
+
+\subsection{LightGCN: model overview}\label{sec:lec11-lgcn-model}
+\slides{49--52}
+
+\begin{itemize}
+  \item \textbf{Given:} adjacency matrix $\mA$; initial learnable embedding
+    matrix $\mE$. Normalize $\mA\to\tA$ (self-loop omitted), then
+    \textbf{iteratively diffuse} $\mE$ using $\tA$ ($\mE^{(0)}$ is set to
+    $\mE$) and \textbf{average the embedding matrices at different scales}
+    (\cref{fig:lec11-lightgcn}):
+\end{itemize}
+\begin{align}
+  \mE^{(k+1)}&\leftarrow\tA\cdot\mE^{(k)}\qquad\text{for }k=0\dots K-1
+    \label{eq:lec11-iter}\\
+  \Efinal&\leftarrow\frac{1}{K+1}\big(\mE^{(0)}+\mE^{(1)}+\cdots+\mE^{(K)}\big)
+    \label{eq:lec11-final}
+\end{align}
+\begin{itemize}
+  \item \textbf{Score function:} use user/item vectors from $\Efinal$: row
+    $\vz_{\vu}$ is used as embedding $\vu$ for $u\in\Uset$, row $\vz_{\vv}$ as
+    embedding $\vv$ for $v\in\Vset$; score $\vz_{\vu}\tp\vz_{\vv}$.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    % adjacency matrix A
+    \begin{scope}
+      \fill[magenta!15] (1.0,0) rectangle (2.0,1.0);
+      \fill[magenta!15] (0,-1.0) rectangle (1.0,0);
+      \draw[thick, black!70] (0,-1.0) rectangle (2.0,1.0);
+      \draw[black!70] (1.0,-1.0) -- (1.0,1.0) (0,0) -- (2.0,0);
+      \node at (0.5,0.5) {$\mathbf{0}$};  \node at (1.5,0.5) {$\mR$};
+      \node at (0.5,-0.5) {$\mR\tp$};     \node at (1.5,-0.5) {$\mathbf{0}$};
+      \node[lec11lbl, ForestGreen!85!black] at (0.5,1.2) {User};
+      \node[lec11lbl, RoyalBlue] at (1.5,1.2) {Item};
+      \node[lec11lbl, ForestGreen!85!black, anchor=east] at (-0.05,0.5) {User};
+      \node[lec11lbl, RoyalBlue, anchor=east] at (-0.05,-0.5) {Item};
+      \node[lec11lbl, magenta!80!black] at (1.0,1.65) {Adjacency matrix $\mA$};
+    \end{scope}
+    \draw[lec11big, TealBlue!70] (2.4,0) -- ++(1.0,0);
+    \node[lec11lbl] at (2.9,0.45) {Normalize};
+    % normalized adjacency
+    \begin{scope}[xshift=4.9cm]
+      \fill[Tan!45] (0,0) rectangle (1.0,1.0);
+      \fill[Tan!45] (-1.0,-1.0) rectangle (0,0);
+      \draw[thick, black!70] (-1.0,-1.0) rectangle (1.0,1.0);
+      \draw[black!70] (0,-1.0) -- (0,1.0) (-1.0,0) -- (1.0,0);
+      \node at (-0.5,0.5) {$\mathbf{0}$}; \node at (0.5,-0.5) {$\mathbf{0}$};
+      \node[lec11lbl, magenta!80!black, align=center] at (0,1.55)
+        {Normalized adj.\ $\tA$\\(self-loop omitted)};
+    \end{scope}
+    % embedding matrix E
+    \begin{scope}[xshift=7.4cm]
+      \fill[ForestGreen!30] (0,0) rectangle (0.8,1.0);
+      \fill[SkyBlue!55] (0,-1.0) rectangle (0.8,0);
+      \draw[thick, black!70] (0,-1.0) rectangle (0.8,1.0);
+      \node[lec11lbl, align=center] at (0.4,0.5) {User\\emb};
+      \node[lec11lbl, align=center] at (0.4,-0.5) {Item\\emb};
+      \node[lec11lbl, blue] at (0.4,1.3) {Embedding $\mE$};
+    \end{scope}
+    % iterative diffusion
+    \begin{scope}[xshift=9.9cm]
+      \pic at (0,0) {lec11emb};
+      \node[font=\small] at (0.8,0) {$\leftarrow$};
+      \pic at (1.7,0) {lec11atil};
+      \node[font=\small] at (2.45,0) {$\cdot$};
+      \pic at (2.7,0) {lec11emb};
+      \node[font=\scriptsize] at (0.22,0.8) {$\mE^{(k+1)}$};
+      \node[font=\scriptsize] at (1.7,0.8) {$\tA$};
+      \node[font=\scriptsize] at (2.92,0.8) {$\mE^{(k)}$};
+      \node[lec11lbl] at (1.6,-0.85) {for $k=0\dots K-1$};
+    \end{scope}
+    % averaging
+    \begin{scope}[xshift=1.6cm, yshift=-2.7cm]
+      \pic at (0,0) {lec11emb};
+      \node[font=\scriptsize] at (0.22,0.8) {$\Efinal$};
+      \node[font=\small, anchor=west] at (0.5,0)
+        {$\leftarrow\ \dfrac{1}{K+1}\Bigg($};
+      \pic at (3.0,0) {lec11emb};
+      \node[font=\small] at (3.75,0) {$+$};
+      \pic at (4.05,0) {lec11emb};
+      \node[font=\small, anchor=west] at (4.55,0) {$+\cdots+$};
+      \pic at (6.2,0) {lec11emb};
+      \node[font=\small, anchor=west] at (6.65,0) {$\Bigg)$};
+      \node[font=\scriptsize] at (3.22,0.8) {$\mE^{(0)}$};
+      \node[font=\scriptsize] at (4.27,0.8) {$\mE^{(1)}$};
+      \node[font=\scriptsize] at (6.42,0.8) {$\mE^{(K)}$};
+    \end{scope}
+    % score
+    \begin{scope}[xshift=10.2cm, yshift=-2.7cm]
+      \pic at (0,0) {lec11emb};
+      \fill[BrickRed!70] (-0.05,0.22) rectangle (0.5,0.34);
+      \fill[BrickRed!70] (-0.05,-0.3) rectangle (0.5,-0.18);
+      \node[font=\scriptsize, anchor=east] at (-0.1,0.28) {$u$};
+      \node[font=\scriptsize, anchor=east] at (-0.1,-0.24) {$v$};
+      \node[font=\scriptsize] at (0.22,0.8) {$\Efinal$};
+      \draw[arrow] (0.7,0.28) -- (1.4,0.05);
+      \draw[arrow] (0.7,-0.24) -- (1.4,-0.05);
+      \node[anchor=west, font=\small] at (1.45,0) {$\vz_{\vu}\tp\vz_{\vv}$};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{LightGCN: normalize the bipartite adjacency matrix, diffuse the
+  learnable embeddings $K$ times, average the scales, score with
+  $\vz_{\vu}\tp\vz_{\vv}$ (slides~44, 49--52).}
+  \label{fig:lec11-lightgcn}
+\end{figure}
+
+\subsection{Intuition, relation to GCN and MF, summary}\label{sec:lec11-lgcn-why}
+\slides{53--56}
+
+\begin{itemize}
+  \item \textbf{Why does the simple diffusion propagation work well?} The
+    diffusion directly encourages the embeddings of similar users/items to be
+    similar: similar users share many common neighbors (items) and are expected
+    to have similar future preferences (interact with similar items).
+  \item \textbf{LightGCN and GCN:} closely related. \textbf{Recall:} GCN
+    (neighbor aggregation part; $d_u,d_v$ = node degree; \textbf{self-loop is
+    added} in the neighborhood definition):
+    \begin{equation}\label{eq:lec11-gcn-node}
+      \vh_v^{(k+1)}=\sum_{u\in N(v)}\frac{1}{\sqrt{d_u}\sqrt{d_v}}\cdot\vh_u^{(k)}
+    \end{equation}
+    LightGCN uses the same equation except that the self-loop is \emph{not}
+    added in the neighborhood definition, and the final embedding takes the
+    average of embeddings from all the layers:
+    \begin{equation}\label{eq:lec11-lgcn-node}
+      \vh_v=\frac{1}{K+1}\sum_{k=0}^{K}\vh_v^{(k)}
+    \end{equation}
+  \item \textbf{LightGCN and MF (shallow encoders):} both \textbf{learn a
+    unique embedding for each user/item}; the difference: LightGCN uses the
+    \emph{diffused} user/item embeddings for scoring. LightGCN performs better
+    than shallow encoders but is more computationally expensive due to the
+    additional diffusion step (the final embedding of a user/item aggregates
+    embeddings of its multi-hop neighboring nodes).
+  \item \textbf{Summary:} LightGCN simplifies NGCF by \textbf{removing the
+    learnable parameters of GNNs}; \textbf{learnable parameters are all in the
+    shallow input node embeddings}; diffusion propagation only involves
+    matrix-vector multiplication; the simplification leads to \textbf{better
+    empirical performance than NGCF} (\cref{tab:lec11-compare}).
+\end{itemize}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{Shallow encoders vs.\ NGCF vs.\ LightGCN (slides~32--33, 39, 42,
+  52, 55--56).}
+  \label{tab:lec11-compare}
+  \begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X
+      >{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+    \toprule
+    & Shallow encoders (CF / MF) & NGCF & LightGCN\\
+    \midrule
+    Learnable params & shallow embs.\ $O(ND)$
+      & shallow embs.\ $O(ND)$ + GNN $O(D^2)$ & shallow embs.\ only\\
+    Graph structure & implicit, first-order (in the objective)
+      & explicit, high-order & explicit, multi-hop diffusion\\
+    Scoring embeddings & shallow $\vu,\vv$ & $\vh_u^{(K)},\vh_v^{(K)}$
+      & diffused, rows of $\Efinal$\\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+% ---------------------------------------------------------------------
+\section{PinSAGE}\label{sec:lec11-pinsage}
+
+\subsection{Motivation and pin embeddings}\label{sec:lec11-pin-motiv}
+\slides{58--60}
+
+\begin{itemize}
+  \item \textbf{Motivation: P2P (pin-to-pin) recommendation} -- query pin (a
+    man in a dark coat) $\to$ grid of related men's-fashion pins.
+  \item \textbf{PinSAGE: pin embedding} (Ying et al., 2018, \emph{Graph
+    Convolutional Neural Networks for Web-Scale Recommender Systems}): unifies
+    visual, textual, and graph information; the largest industry deployment of
+    a Graph Convolutional Networks; huge adoption across Pinterest; works for
+    fresh content and is available in a few seconds after pin creation
+    (figure: 2-D map of pin embeddings).
+  \item \textbf{Application: Pinterest.} \textbf{Goal:} generate embeddings for
+    nodes in a large-scale Pinterest graph containing billions of objects.
+    \textbf{Key idea:} borrow information from nearby nodes -- e.g., bed rail
+    pin might look like a garden fence, but gates and beds are rarely adjacent
+    in the graph (figure: node $A$ with its neighbors). Pin embeddings are
+    essential to various tasks like recommendation of pins, classification,
+    ranking; services like ``Related Pins'', ``Search'', ``Shopping'',
+    ``Ads''.
+\end{itemize}
+
+\subsection{Pins, boards and the GNN}\label{sec:lec11-pin-graph}
+\slides{61--62}
+
+\begin{itemize}
+  \item \textbf{Harnessing pins and boards:} pins (e.g., ``Very ape blue
+    structured coat'', ``Hans Wegner chair'', a plant image) are linked to the
+    boards they are saved on (e.g., ``Man Style'', ``men + style'', ``mid
+    century modern'', ``Plants'').
+  \item \textbf{PinSAGE GNN:} graph has \textbf{tens of billions of nodes and
+    edges}; further resolves embeddings across the Pinterest graph
+    (\cref{fig:lec11-pinsage}).
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85]
+    % bipartite pins-boards graph
+    \begin{scope}
+      \foreach \i in {1,...,10}
+        \node[lec11pin] (p\i) at (0.55*\i,1.6) {};
+      \foreach \j/\c/\x in {1/YellowGreen/0.9, 2/TealBlue/2.1, 3/BrickRed/3.3,
+                            4/black/4.5}
+        \node[lec11board, fill=\c] (b\j) at (\x,0) {};
+      \foreach \i/\j in {1/1, 2/1, 3/1, 4/2, 4/1, 5/2, 5/3, 6/3, 6/2, 7/3, 7/4,
+                         8/4, 9/4, 10/4, 8/3}
+        \draw[black!45] (p\i) -- (b\j);
+      \node[lec11lbl, anchor=east] at (0.3,1.6) {pins};
+      \node[lec11lbl, anchor=east] at (0.6,0) {boards};
+    \end{scope}
+    \draw[lec11big, black!50] (6.2,0.8) -- ++(0.8,0);
+    % computation graph
+    \begin{scope}[xshift=8.6cm]
+      \node[circle, fill=cyan!70, minimum size=4.5mm, inner sep=0pt] (t) at (2.0,2.6) {};
+      \node[lec11agg, minimum width=3.8cm] (ag) at (2.0,1.9) {Aggregator};
+      \foreach \j/\c/\x in {1/YellowGreen/0.6, 2/TealBlue/2.0, 3/blue!70/3.4} {
+        \node[lec11board, fill=\c] (cb\j) at (\x,1.15) {};
+        \node[lec11agg] (a\j) at (\x,0.55) {Agg.};
+        \draw[-{Stealth[length=1.3mm]}, thick] (cb\j) -- (cb\j |- ag.south);
+        \draw[-{Stealth[length=1.3mm]}, thick] (a\j) -- (cb\j);
+        \foreach \d [count=\n] in {-0.35,0,0.35} {
+          \node[lec11pin, minimum size=1.8mm] (q\j\n) at (\x+\d,-0.15) {};
+          \draw[-{Stealth[length=1.1mm]}, black!70] (q\j\n) -- (a\j.south -| q\j\n);
+        }
+      }
+      \draw[-{Stealth[length=1.3mm]}, thick] (ag) -- (t);
+      \node[lec11lbl, anchor=east] at (0.15,1.15) {boards};
+      \node[lec11lbl, anchor=east] at (0.15,-0.15) {pins};
+      \node[font=\tiny, anchor=west] at (2.3,2.6) {$[x_1\ x_2\cdots x_m]$};
+      \node[font=\tiny] at (2.0,-0.55) {pin features $[x_1\ x_2\cdots x_m]$};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{PinSAGE on the pins--boards graph: pins are aggregated into boards,
+  boards into the target pin (slide~62).}
+  \label{fig:lec11-pinsage}
+\end{figure}
+
+\subsection{Scaling up, task and training data}\label{sec:lec11-pin-scale}
+\slides{63--65}
+
+\begin{itemize}
+  \item \textbf{Methods for scaling up:} in addition to the GNN model, PinSAGE
+    introduces several methods to scale the GNN to a billion-scale recommender
+    system (e.g., Pinterest): \textbf{shared negative samples} across users in a
+    mini-batch; \textbf{hard negative samples}; \textbf{curriculum learning};
+    mini-batch training of GNNs on a large graph (to be covered in a future
+    lecture).
+  \item \textbf{PinSAGE model} (repeat of \cref{ch:lec01}): recommend related
+    pins to users; learn node
+    embeddings $z_i$ such that $d(z_{cake1},z_{cake2})<d(z_{cake1},z_{sweater})$.
+    New: $d(z_1,z_2)$ is computed between the outputs of two GNN computation
+    graphs.
+  \item \textbf{Training data: 1+B repin pairs} -- from Related Pins surface;
+    capture semantic relatedness; goal: embed such pairs to be ``neighbors''.
+    Example positive training pairs $(Q,X)$: dog close-up / dog; ``I love
+    sailor'' mug / NAVY anchor sign; cartoon fox and bunny / cartoon bunny.
+\end{itemize}
+
+\subsection{Shared negative samples}\label{sec:lec11-shared}
+\slides{66--67}
+
+\begin{itemize}
+  \item \textbf{Recall:} in BPR loss (\cref{eq:lec11-bpr-mini}), for each user
+    $u^*\in\Umini$, we sample one positive item $v_{\mathrm{pos}}$ and a set of
+    sampled negative items $\Vneg=\{v_{\mathrm{neg}}\}$.
+  \item More negative samples per user improves the recommendation performance,
+    but is also expensive: we need to generate $|\Umini|\cdot|\Vneg|$
+    embeddings for negative nodes, i.e., apply $|\Umini|\cdot|\Vneg|$ GNN
+    computational graphs.
+  \item \textbf{Key idea:} share the same set of negative samples
+    $\Vneg=\{v_{\mathrm{neg}}\}$ \textbf{\emph{across all users}} $\Umini$ in
+    the mini-batch $\Rightarrow$ only $|\Vneg|$ embeddings for negative nodes;
+    saves the node embedding generation computation \textbf{by a factor of
+    $|\Umini|$!} Empirically, the performance stays similar to the non-shared
+    negative sampling scheme.
+\end{itemize}
+
+\subsection{Hard negatives and curriculum learning}\label{sec:lec11-hard}
+\slides{68--71}
+
+\begin{itemize}
+  \item \textbf{Challenge:} industrial recsys needs to make \textbf{extremely
+    fine-grained predictions}: \#total items up to billions; \#items to
+    recommend for each user: 10 to 100.
+  \item \textbf{Issue:} the shared negative items are randomly sampled from all
+    items $\Rightarrow$ most are \term{easy negatives} (a model does not need
+    to be fine-grained to distinguish them from positive items). We need to
+    sample \term{hard negatives} to force the model to be fine-grained!
+  \item \textbf{Curriculum learning idea:} use harder and harder negative
+    samples; include more and more hard negative samples for each epoch.
+    Example: source pin (feather card ``a thousand thanks''), positive (another
+    feather card), easy negative (landscape photo of wooden houses), hard
+    negative (a ``Happy Birthday'' card).
+\end{itemize}
+\begin{keyidea}[Curriculum learning (slide~70)]
+  It is effective \textbf{to make the negative samples \emph{gradually harder}
+  in the process of training}: at $n$-th epoch, we add $n-1$ hard negative
+  items $\Rightarrow$ \#(hard negatives) gradually increases $\Rightarrow$ the
+  model gradually learns to make finer-grained predictions.
+\end{keyidea}
+\begin{itemize}
+  \item \textbf{Hard negatives} for each user node = \textbf{item nodes that
+    are close (but not connected) to the user node in the graph}. For user
+    $u\in\Uset$: (1) compute random walks from $u$ -- run \textbf{random walk
+    with restart} from $u$, obtain \textbf{visit counts} for other
+    items/nodes; (2) sort items in the descending order of their visit count;
+    (3) randomly sample items ranked high but not too high, e.g.,
+    2000\textsuperscript{th}--5000\textsuperscript{th} (close but not too close
+    (connected) to the user node). Used \textbf{in addition to} the shared
+    negatives.
+\end{itemize}
+
+\subsection{Negative sampling, results and summary}\label{sec:lec11-pin-results}
+\slides{72--75}
+
+\begin{itemize}
+  \item \textbf{Negative sampling:} $(q,p)$ positive pairs are given, but
+    various methods to sample negatives to form $(q,p,n)$ [$(q,p)$ + negatives
+    in batch $\to$ sampling $\to$ $(q,p,n)$]. \textbf{Distance Weighted
+    Sampling} (Wu et al., 2017): sample negatives so that the query-negative
+    distance distribution is approx uniform $U[0.5,1.4]$. (Plot of sample
+    distribution vs.\ distance between examples, 0--2: hard negative mining
+    ${\sim}0.15$--$0.3$, semi-hard ${\sim}0.5$, uniform sampling
+    ${\sim}1.25$--$1.75$, distance weighted spread over the whole range.)
+  \item \textbf{Fine-grained object similarity:} query = porcelain lace
+    figurine; ``visual only'' also returns lamps/lampshades; \textbf{PinSAGE}
+    returns only porcelain figurines.
+  \item \textbf{Compare against prod} (rows unlabeled; blue box = PinSAGE as
+    on slide~73): query = cat in a knitted lamb hat; top row (production)
+    returns mostly Shih Tzu posters/slogans; blue-boxed row (PinSAGE) returns
+    cats wearing knitted hats.
+  \item \textbf{Summary:} \textbf{PinSAGE uses GNNs} to generate high-quality
+    user/item embeddings that \textbf{capture both the rich node attributes and
+    graph structure}; effectively trained using sophisticated \textbf{negative
+    sampling strategies}; \textbf{successfully deployed at Pinterest}, a
+    billion-scale image content recommendation service.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\par\ifdim\dimexpr\pagegoal-\pagetotal\relax<11cm\relax\newpage\fi
+\bigskip\phantomsection
+\addcontentsline{toc}{section}{Lecture 11 at a glance}
+\begin{summarybox}[Lecture 11 at a glance]
+  \begin{itemize}
+    \item \textbf{Recsys = user-item bipartite graph}; recommendation = link
+      prediction with a score $f(u,v)$; 2 stages: candidate generation (NN
+      engine), then ranking.
+    \item \textbf{Recall@$K$} $=|P_u\cap R_u|/|P_u|$, averaged over users;
+      $K\sim10$--$100$; already-interacted items excluded.
+    \item \textbf{Embedding-based models:} user encoder, item encoder,
+      $\mathrm{score}(u,v)=f_\theta(\vu,\vv)$; recall@$K$ not differentiable
+      $\Rightarrow$ surrogate losses.
+    \item \textbf{Binary loss} (all positives vs.\ all negatives) is
+      non-personalized; \textbf{BPR:}
+      $\frac{1}{|\Uset|}\sum_{u^*}\mathrm{Loss}(u^*)$ with
+      $-\log\sigma\big(f_\theta(\vu^*,\vpos)-f_\theta(\vu^*,\vneg)\big)$ over
+      rooted edges; mini-batch: users, one positive, sampled negatives.
+    \item \textbf{Collaborative filtering:} similar users prefer similar items;
+      low-dimensional embeddings must capture similarity.
+    \item \textbf{NGCF:} shallow $\vh^{(0)}$ +
+      $\vh^{(k+1)}=\mathrm{COMBINE}(\vh^{(k)},\mathrm{AGGR}(\cdot))$ on the
+      bipartite graph; $\mathrm{score}=\vu\tp\vv$, $\vu=\vh_u^{(K)}$.
+    \item \textbf{LightGCN:} $\tA=\mD^{-1/2}\mA\mD^{-1/2}$ (no self-loop); no
+      ReLU, no weights: $\mE^{(k+1)}=\tA\mE^{(k)}$,
+      $\Efinal=\frac{1}{K+1}\sum_{k=0}^K\mE^{(k)}$, score
+      $\vz_{\vu}\tp\vz_{\vv}$; all params in shallow embeddings; beats NGCF.
+    \item \textbf{PinSAGE:} GNN on pins--boards graph (tens of billions of
+      nodes/edges), visual + textual + graph info; 1+B repin pairs; shared
+      negatives (saves factor $|\Umini|$); hard negatives from random walk with
+      restart (rank 2000--5000), curriculum ($n-1$ at epoch $n$).
+  \end{itemize}
+\end{summarybox}

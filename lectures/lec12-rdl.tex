@@ -1,0 +1,820 @@
+\lecture{12}{Relational Deep Learning}{Thursday, October 29, 2026}\label{ch:lec12}
+
+% Local notation (lecture 12)
+\providecommand{\vt}{\mathbf{t}}
+
+% Local TikZ styles (prefix lec12)
+\tikzset{
+  lec12usr/.style={circle, draw=black!70, thick, fill=Orchid!35, minimum size=5mm,
+                   inner sep=0pt, font=\scriptsize},
+  lec12sale/.style={rectangle, rounded corners=1.5pt, draw=black!70, thick,
+                    fill=Goldenrod!35, inner sep=1.5pt, font=\tiny},
+  lec12prod/.style={circle, draw=black!70, thick, fill=SkyBlue!45, minimum size=5mm,
+                    inner sep=0pt},
+  lec12churn/.style={rectangle, rounded corners=1.5pt, draw=RoyalBlue!70, fill=RoyalBlue!15,
+                     font=\tiny\sffamily, minimum width=9mm, inner sep=1.5pt},
+  lec12act/.style={rectangle, rounded corners=1.5pt, draw=Goldenrod!90!black,
+                   fill=Goldenrod!20, font=\tiny\sffamily, minimum width=9mm, inner sep=1.5pt},
+  lec12time/.style={font=\tiny\sffamily, black!60},
+  lec12att/.style={densely dashed, black!60, -{Stealth[length=1.5mm]}},
+  lec12tr/.style={circle, draw=black, fill=Cyan!45, minimum size=5.2mm, inner sep=0pt,
+                  font=\scriptsize},
+  lec12pr/.style={circle, draw=black, fill=Orange!55, minimum size=5.2mm, inner sep=0pt,
+                  font=\scriptsize},
+  lec12cu/.style={circle, draw=black, fill=ForestGreen!45, minimum size=5.2mm,
+                  inner sep=0pt, font=\scriptsize},
+  lec12oe/.style={thick, Orange!85!black, {Stealth[length=1.4mm]}-{Stealth[length=1.4mm]}},
+  lec12ge/.style={thick, ForestGreen!80!black, {Stealth[length=1.4mm]}-{Stealth[length=1.4mm]}},
+  lec12cap/.style={font=\scriptsize\sffamily, align=center},
+  lec12smp/.style={circle, draw=Purple!70, thick, fill=Purple!8, minimum size=4mm,
+                   inner sep=0pt},
+}
+
+\textbf{Outline.} Relational databases (motivation, why not LLMs) $\to$ generalizing deep
+learning to databases (RDL) $\to$ a database is a graph $\to$ relational database graph
+(schema graph, relational entity graph) $\to$ predictive tasks (training tables) $\to$
+relational GNN (temporal, SQL joins vs.\ edges, benefits) $\to$ RelBench $\to$ GNN vs.\
+expert data scientist $\to$ results.
+
+% ---------------------------------------------------------------------
+\section{Relational databases}\label{sec:lec12-rdb}
+
+\subsection{Deep learning revolution}\label{sec:lec12-revolution}
+\slides{4--6}
+
+\begin{itemize}
+  \item Deep learning revolution on \textbf{sequences} (text, e.g.\ the Wikipedia article
+    ``Statue of Liberty''; protein chains A and B as amino-acid sequences) and
+    \textbf{images} (photos; a Tesla Autopilot tweet).
+  \item These breakthroughs are fueled by \textbf{Transformers}: encoder--decoder
+    architecture (input/output embedding + positional encoding; $N\times$ multi-head
+    attention, add \& norm, feed forward; masked multi-head attention; linear; softmax
+    $\to$ output probabilities); \emph{ChatGPT's exam results} (percentile rank jumps
+    63rd$\to$99th, 25th$\to$80th, 40th$\to$88th, 22nd$\to$71st, 10th$\to$90th,
+    30th$\to$66th).
+  \item \dots\ and fueled by \textbf{Data}: The Economist (May 6th--12th 2017), ``The
+    world's most valuable resource -- Data and the new rules of competition''.
+\end{itemize}
+
+\subsection{Data in relational databases and predictive tasks}\label{sec:lec12-tasks}
+\slides{7--10}
+
+\begin{itemize}
+  \item \textbf{Data stored in relational databases} (commerce and finance schemas as in
+    \cref{ch:lec01}); new: \textbf{Social Media} -- Users, UserSettings, UserProfiles,
+    Locations, ExternalAccounts, FollowingRelationships, Posts, PostComments, PostStats,
+    PostFavorites, PostTags, Tags, PostCategories, Categories.
+  \item \textbf{Predictions on relational data:}
+    \begin{itemize}
+      \item \textbf{Commerce} (Users(ID) -- Sales(ID, Product\_ID, Session\_ID, User\_ID,
+        Price) -- Products(Product\_ID)): which \textbf{products will a user purchase} in
+        the next 7 days? Will an \textbf{active user churn} in the next 90 days? What will
+        be the \textbf{total sales for each product} in the next 30 days?
+      \item \textbf{Finance} (loan, order, trans, card, disp, account, client, district):
+        what will be the \textbf{loan outcome} (good vs bad)? What will be the
+        \textbf{total number of failed loans} in the next year?
+      \item \textbf{Health} (patients 46,520 rows; admissions 58,976 rows; noteevents
+        2,083,180 rows; procedures\_icd 240,095 rows; diagnoses\_icd 651,047 rows; linked
+        by subject\_id, hadm\_id): will a \textbf{patient return} if discharged from the
+        hospital? Which hospital admissions have \textbf{greatest risk to life} in the
+        next 24 hours?
+    \end{itemize}
+\end{itemize}
+
+\subsection{Doing AI is slow \& complex}\label{sec:lec12-slow}
+\slides{11--13}
+
+\begin{itemize}
+  \item \textbf{Pipeline:} input data cleaning, curation $\to$ target label engineering
+    $\to$ feature engineering $\to$ architecture \& hyperparameter search $\to$ ML Ops:
+    \textbf{6-12 months of time for a team of data scientists, data engineers and product
+    engineers}.
+  \item \term{Impedance mismatch}. \textbf{Goal:} learn a \textbf{user churn} model based
+    on their sales, purchased products and browsing behavior. Tables Users(ID),
+    Sessions(ID, User\_ID), Sales(ID, Product\_ID, Session\_ID, User\_ID, Price),
+    Products(Product\_ID), Views(ID, Product\_ID, Session\_ID) are flattened into
+    \textbf{one table}: rows = examples, columns = features (\#monthly sales, sum weekly
+    item price, \#orders relative to Sunday) + Label. Problems:
+    \begin{itemize}
+      \item features are chosen \textbf{arbitrarily} (e.g.\ aggregations, time windows);
+      \item only a \textbf{limited set of data} is used;
+      \item issues with \textbf{point-in-time correctness/information leakage}.
+    \end{itemize}
+\end{itemize}
+
+\begin{keyidea}[Key question]
+  How to leverage the data without going through the longest duration tasks
+  (extraction, transformation, loading)? \textbf{We want ML algorithms that can process
+  data in its natural form!} (slides~13, 18)
+\end{keyidea}
+
+\subsection{Why not use an LLM?}\label{sec:lec12-llm}
+\slides{14--17}
+
+\begin{itemize}
+  \item \textbf{Some have tried:} Wydmuch, Borchmann, Grali\'nski (Snowflake AI Research),
+    \emph{Tackling prediction tasks in relational databases with LLMs}. Process of
+    constructing a single example for LLM-based inference: schema (Task Table: Target,
+    Timestamp, Customer ID; Customers; Products; Transactions) $\to$ collect the rows
+    linked to one task row $\to$ serialize as JSON (\texttt{"Customer ID": 13},
+    \dots, \texttt{"Transactions": [\dots]}, \texttt{"Target": 1}).
+  \item \textbf{Prompt} (slide~16): one such serialized example (product attributes,
+    transactions, prices, timestamps) already fills a whole slide.
+  \item \textbf{Why not LLMs?}
+    \begin{itemize}
+      \item LLMs are not trained to understand and effectively learn from the
+        \textbf{relational nature} of Databases;
+      \item Database prediction is \textbf{NOT} sequence modeling;
+      \item LLMs are \textbf{NOT trained to predict the future};
+      \item \textbf{Context size} is \textbf{limited}.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Modern ML}\label{sec:lec12-modern}
+\slides{18--19}
+
+\begin{itemize}
+  \item Slide~18 repeats the key question above.
+  \item Today we want to design deep learning models that operate on \textbf{relational
+    tables}; but the modern deep learning toolbox is designed for \textbf{different type
+    of inputs} (text, images, networks).
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Generalizing deep learning to databases}\label{sec:lec12-generalize}
+
+\subsection{Relational deep learning (RDL)}\label{sec:lec12-rdl}
+\slides{21--23}
+
+\begin{itemize}
+  \item \textbf{Deep learning on relational tables:} relational tables $\to$
+    \term{Relational Deep Learning} $\to$ \textbf{Prediction}.
+  \item \textbf{What is RDL?}
+    \begin{itemize}
+      \item End-to-end \textbf{deep learning on relational tables} (i.e., databases);
+      \item works directly on relational tables, no transformations, no feature
+        engineering;
+      \item casts predictive tasks as \textbf{graph representation learning} problems.
+    \end{itemize}
+  \item \textbf{Impact and consequences:}
+    \begin{itemize}
+      \item \textbf{More accurate models} (no feature engineering);
+      \item \textbf{More robust models} (model-learned features automatically ``update''
+        over time);
+      \item \textbf{Shorter time to models} (no mundane ETL work);
+      \item \textbf{Simpler infrastructure} (no pipelines, no feature stores, etc.).
+    \end{itemize}
+\end{itemize}
+
+\subsection{Related work}\label{sec:lec12-related}
+\slides{24--25}
+
+\begin{itemize}
+  \item \textbf{Tabular ML} (e.g.\ decision trees: root/decision/leaf nodes, sub-tree):
+    \begin{itemize}
+      \item great for building models on \textbf{one table} -- but most data is not a
+        single table!
+      \item deep learning is not dominant. \textbf{Hypothesis:} because single table
+        already contains features engineered from other tables (\textbf{loss of
+        information}).
+      \item \textbf{RDL accounts for relations between multiple tables, unlike tabular
+        ML!}
+    \end{itemize}
+  \item \textbf{Statistical Relational Learning} [Friedman et al., 1999]: learns a
+    \textbf{distribution (graphical model) over the relational structure} (example:
+    Movie(movie-id, title, process, decade, genre), Appears(appears-id, movie, actor,
+    roletype), Actor(actor-id, gender); dotted = relationship, arrow = probabilistic
+    dependency).
+    \begin{itemize}
+      \item predictions via world model + inductive logic programming;
+      \item only works with categorical variables;
+      \item does not scale to large data.
+    \end{itemize}
+  \item RDL: a \textbf{scalable, expressive inheritor} of Statistical Relational Learning.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Relational deep learning: a database is a graph}\label{sec:lec12-dbgraph}
+\slides{27--30}
+
+\begin{itemize}
+  \item \textbf{Insight: a database is a graph!} Schema Users(ID) -- Sales(ID,
+    Product\_ID, Session\_ID, User\_ID, Price) -- Products(Product\_ID) $\Rightarrow$
+    graph Users -- Sales (\$20, \$80, \$15, \$20, \$80, \$80, \$15) -- Products (shirt,
+    shoe, sunglasses) -- the same figure as in \cref{ch:lec01}.
+  \item \textbf{Just do ML on a graph!} ML in the language of graphs:
+    \begin{itemize}
+      \item \textbf{node-level:} churn, life-time value, next best action;
+      \item \textbf{link-level:} product affinity, recommendations;
+      \item \textbf{graph-level:} fraud, money laundering.
+    \end{itemize}
+  \item \textbf{Graph ML problem solving pipeline:} Relational DB $\to$ Graph Problem
+    $\to$ Graph ML (neural networks on computation graphs) $\to$ Solutions (predicted
+    labels attached to the users).
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Relational database graph}\label{sec:lec12-rdbgraph}
+
+\subsection{Databases are relational}\label{sec:lec12-relational}
+\slides{32--34}
+
+\begin{itemize}
+  \item \textbf{Real-world data are stored in databases:} a transaction (User $\to$
+    Product) becomes a row of the \textbf{Transaction Table} (Trans ID, User ID, Product
+    ID, Value, Timestamp), e.g.\ (100, 51, 345, \$1000, 1710281001).
+  \item \textbf{Databases are often relational:} User ID 51 points to the \textbf{User
+    Table} row (51, Male) (columns User ID, Gender); Product ID 345 points to the
+    \textbf{Product Table} row (345, Bike) (columns Product ID, Category)
+    $\Rightarrow$ \textbf{relational databases as heterogeneous graphs}
+    (\cref{ch:lec09}).
+  \item \textbf{Mathematically:} a database is a set of tables $\calT$ and links between
+    tables $\mathcal{L}$:
+\end{itemize}
+\begin{equation}\label{eq:lec12-db}
+  \calT=\{T_1,\dots,T_n\},\qquad \mathcal{L}\subseteq\calT\times\calT
+\end{equation}
+
+\subsection{Schema graph}\label{sec:lec12-schema}
+\slides{35--36}
+
+\begin{itemize}
+  \item The \term{schema graph} represents the \textbf{high-level structure} of the
+    heterogeneous graph. Example: Products(ProductID, Description, Image, Size),
+    Transactions(TransactionID, ProductID, \textbf{Timestamp}, CustomerID, Price),
+    Customers(CustomerID, Name); edges ``Bought which'' (Products--Transactions) and
+    ``Bought by'' (Transactions--Customers). Second example: orders, orders\_items,
+    customers, items.
+  \item \raggedright The schema graphs can be \textbf{more complex}: \textbf{rel-trial} schema --
+    studies (key nct\_id), outcomes, outcome\_analyses, drop\_withdrawals, designs,
+    eligibilities, reported\_event\_totals, interventions, interventions\_studies,
+    facilities, facilities\_studies, sponsors, sponsors\_studies, conditions,
+    conditions\_studies (columns typed numerical / categorical / text / timestamp).
+\end{itemize}
+
+\subsection{Relational entity graph}\label{sec:lec12-entity}
+\slides{37--39}
+
+\begin{itemize}
+  \item \term{Relational entity graph}: create connections via \textbf{primary-foreign
+    keys} (the Users--Sales--Products graph above / \cref{ch:lec01}).
+\end{itemize}
+
+\begin{definition}[Relational entity graph]\label{def:lec12-reg}
+  Given a database of tables $\calT=\{T_1,\dots,T_n\}$ and relations
+  $\mathcal{L}\subseteq\calT\times\calT$, where each table is a set of entities $v\in T_i$
+  possessing a \textbf{primary key} and optional \textbf{foreign keys}, the relational
+  entity graph is such that
+  \begin{itemize}
+    \item the \textbf{set of nodes} is defined by all rows in all tables:
+      \begin{equation}\label{eq:lec12-nodes}
+        \calV=\bigcup_{T\in\calT}T
+      \end{equation}
+    \item the \textbf{set of edges} is defined by connecting two entities $v_1,v_2$ whose
+      primary and foreign keys match.
+  \end{itemize}
+\end{definition}
+
+\begin{itemize}
+  \item \textbf{Entities also have features} (different than KGs, \cref{ch:lec10}): e.g.\
+    Gender (Male), Category (Bike), Value (\$1000), Timestamp.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Predictive tasks in relational databases}\label{sec:lec12-predtasks}
+
+\subsection{Overview and defining a task}\label{sec:lec12-define}
+\slides{41--42}
+
+\begin{itemize}
+  \item \textbf{Overview of the approach:} (a) \textbf{define tasks} (``How much will each
+    customer buy in the next 90 days?'') $\to$ (b) \textbf{training table generation}:
+    gather training targets from historical data (Training Table: 90-day Target,
+    Customer\_ID, SeedTime) $\to$ (c) \textbf{link to relational tables} (Training
+    Table.User\_ID -- Customers.Customer\_ID -- Transactions.Customer\_ID,
+    Transactions.Product\_ID -- Products.Product\_ID).
+    \textbf{Next:} define task(s); relational deep learning.
+  \item \textbf{Example:} predict whether a user is going to churn in the next 30 days?
+  \item \textbf{Most tasks are temporal:}
+    \begin{itemize}
+      \item customer's \textbf{label changes over time};
+      \item database changes over time -- for every time, a feature needs to be
+        recomputed.
+    \end{itemize}
+  \item Temporal tasks are especially challenging because features are time dependent:
+    for every time, a feature needs to be recomputed; entity's label can change between
+    time steps.
+  \item \textbf{To define a task, we need:} \textbf{Entity}, \textbf{Label},
+    \textbf{Time}.
+\end{itemize}
+
+\subsection{Training table}\label{sec:lec12-training}
+\slides{43--45}
+
+\begin{definition}[Training table]\label{def:lec12-train}
+  \term{Training Table}: a special table containing training labels, with rows
+  \textbf{(entity ID, time, labels)}; tasks: classification, regression, multi-class.
+\end{definition}
+
+\begin{itemize}
+  \item The \textbf{time column} is essential for \textbf{temporal prediction tasks}:
+    \begin{itemize}
+      \item an entity may have different labels at different times;
+      \item only use information up to the time of label.
+    \end{itemize}
+  \item \textbf{Example} (slide~44), rows (Entity ID, Timestamp, Label): (99, 10172024, 1),
+    (99, 10182024, 1), \dots, (100, 10172024, 1), (100, 10182024, 0), \dots\ -- entity
+    100 changes label between the two times.
+  \item \textbf{Example -- churn:} schema Users--Sales--Products; task: predict whether a
+    user is going to churn = \textbf{zero sales in the next 30 days}; training table
+    \textbf{(user, time, churn label)}.
+\end{itemize}
+
+\subsection{RDL pipeline and connecting the training table}\label{sec:lec12-pipeline}
+\slides{46--48}
+
+\begin{itemize}
+  \item \textbf{Relational Deep Learning pipeline} (slide~46, repeated on slide~50):
+    \begin{itemize}
+      \item (a) rel.\ tables with training table (Customer LTV: 90-day LTV, User\_ID,
+        SeedTime; Customers, Transactions, Products);
+      \item (b) entities (rows) linked by foreign keys;
+      \item (c) relational entity graph: products 1, 2, 3 -- transactions -- customers --
+        training-table nodes (A, B);
+      \item (d) graph neural network: computation graph rooted at each training-table node
+        (B, A), messages flow from products through transactions and customers.
+    \end{itemize}
+  \item Relational entity graph (slide~47 = slide~37).
+  \item \textbf{Connect the training table:} \textbf{training labels} together with
+    \textbf{timestamps} are \textbf{attached} to the graph -- each user gets one label
+    node per time (\cref{fig:lec12-labels}a).
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85, transform shape]
+    % (a) training table attached to the entity graph
+    \begin{scope}
+      \foreach \i/\y/\t/\l/\s in {1/3.4/May '23/Churn/lec12churn,
+                                  2/2.95/June '23/Active/lec12act,
+                                  3/2.4/May '23/Churn/lec12churn,
+                                  4/1.95/June '23/Active/lec12act,
+                                  5/1.35/June '23/Active/lec12act,
+                                  6/0.8/April '23/Active/lec12act,
+                                  7/0.35/May '23/Churn/lec12churn,
+                                  8/-0.1/June '23/Active/lec12act} {
+        \node[\s] (l\i) at (0.9,\y) {\l};
+        \node[lec12time, anchor=east] at (0.38,\y) {\t};
+      }
+      \node[lec12usr] (u1) at (2.6,3.175) {$u_1$};
+      \node[lec12usr] (u2) at (2.6,2.175) {$u_2$};
+      \node[lec12usr] (u3) at (2.6,1.35) {$u_3$};
+      \node[lec12usr] (u4) at (2.6,0.35) {$u_4$};
+      \draw[lec12att] (u1) -- (l1.east); \draw[lec12att] (u1) -- (l2.east);
+      \draw[lec12att] (u2) -- (l3.east); \draw[lec12att] (u2) -- (l4.east);
+      \draw[lec12att] (u3) -- (l5.east);
+      \draw[lec12att] (u4) -- (l6.east); \draw[lec12att] (u4) -- (l7.east);
+      \draw[lec12att] (u4) -- (l8.east);
+      \foreach \i/\y/\p in {1/3.4/20, 2/2.8/80, 3/2.2/15, 4/1.6/20, 5/1.0/80, 6/0.4/80, 7/-0.2/15}
+        \node[lec12sale] (s\i) at (4.2,\y) {\$\p};
+      \node[lec12prod, label={[font=\scriptsize]right:shirt}] (sh) at (5.8,2.8) {};
+      \node[lec12prod, label={[font=\scriptsize]right:shoe}] (so) at (5.8,1.6) {};
+      \node[lec12prod, label={[font=\scriptsize]right:sunglasses}] (sg) at (5.8,0.4) {};
+      \draw[edge] (u1)--(s1) (u1)--(s2) (u2)--(s3) (u3)--(s4) (u3)--(s5) (u4)--(s6) (u4)--(s7);
+      \draw[edge] (s1)--(sh) (s4)--(sh) (s2)--(so) (s5)--(so) (s6)--(so) (s3)--(sg) (s7)--(sg);
+      \node[font=\scriptsize] at (2.6,-0.65) {Users};
+      \node[font=\scriptsize] at (4.2,-0.65) {Sales};
+      \node[font=\scriptsize] at (5.8,-0.65) {Products};
+      \node[lec12cap] at (3.0,-1.15) {(a) labels + timestamps attached to the graph (sl.~48)};
+    \end{scope}
+    % (b) computation graphs of u1
+    \begin{scope}[xshift=8.6cm]
+      \node[lec12time, anchor=east] at (-0.05,2.8) {May '23};
+      \node[lec12churn] (c1) at (0.5,2.8) {Churn};
+      \node[lec12usr] (a1) at (1.7,2.8) {$u_1$};
+      \node[lec12sale] (a2) at (3.0,2.8) {\$20};
+      \node[lec12prod, label={[font=\scriptsize]right:shirt}] (a3) at (4.3,2.8) {};
+      \draw[lec12att] (a1) -- (c1);
+      \draw[edge] (a1)--(a2)--(a3);
+      \node[lec12time, anchor=east] at (-0.05,1.0) {June '23};
+      \node[lec12act] (c2) at (0.5,1.0) {Active};
+      \node[lec12usr] (b1) at (1.7,1.0) {$u_1$};
+      \node[lec12sale] (b2) at (3.0,1.5) {\$20};
+      \node[lec12sale] (b3) at (3.0,0.5) {\$80};
+      \node[lec12prod, label={[font=\scriptsize]right:shirt}] (b4) at (4.3,1.5) {};
+      \node[lec12prod, label={[font=\scriptsize]right:shoe}] (b5) at (4.3,0.5) {};
+      \draw[lec12att] (b1) -- (c2);
+      \draw[edge] (b1)--(b2)--(b4) (b1)--(b3)--(b5);
+      \node[lec12cap] at (2.3,-1.15) {(b) GNN computation graphs of $u_1$ (sl.~51)};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{Training labels with timestamps attached to the relational entity graph, and the
+  time-dependent computation graphs of the first user (slides~48, 51).}
+  \label{fig:lec12-labels}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\section{Relational GNN}\label{sec:lec12-rgnn}
+
+\subsection{GNN on the entity graph}\label{sec:lec12-gnn}
+\slides{50--52}
+
+\begin{itemize}
+  \item Slide~50 repeats the RDL pipeline (slide~46).
+  \item \textbf{Node's neighborhood defines a computation graph} (\cref{ch:lec03}). Nodes
+    learn how to \emph{optimally} use information from neighbors to obtain enhanced node
+    representations (every user, sale and product node carries an embedding).
+    \textbf{Example} (\cref{fig:lec12-labels}b): the first user's May '23 (Churn)
+    computation graph contains only the \$20 sale $\to$ shirt; the June '23 (Active) one
+    also contains the \$80 sale $\to$ shoe.
+  \item \textbf{GNNs on temporal graphs} (\cref{fig:lec12-temporal}): (a) schema graph
+    (Products, Transactions, Customers), (b) relational entity graph with transactions
+    $v_1,\dots,v_6$ ordered in time, (c) computation graphs of customer $v_{11}$ for
+    different time $t$.
+    \begin{itemize}
+      \item The computation graph for each node is \textbf{time-dependent};
+      \item Message+Aggregation becomes \textbf{time-dependent};
+      \item Sampling over neighbors is \textbf{time-dependent}.
+    \end{itemize}
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85, transform shape]
+    % (b) relational entity graph
+    \begin{scope}
+      \draw[-{Stealth[length=1.5mm]}, black!70] (-0.75,3.3) -- (-0.75,-0.2);
+      \node[font=\scriptsize] at (-1.0,3.3) {0};
+      \node[font=\scriptsize] at (-1.0,-0.2) {6};
+      \node[font=\scriptsize, rotate=90] at (-1.05,1.55) {Time};
+      \foreach \i in {1,...,6} \node[lec12tr] (v\i) at (0,{3.3-(\i-1)*0.68}) {$v_{\i}$};
+      \foreach \i in {7,8,9} \node[lec12pr] (v\i) at (2.6,{3.3-(\i-7)*0.62}) {$v_{\i}$};
+      \foreach \i in {10,11,12} \node[lec12cu] (v\i) at (2.6,{1.2-(\i-10)*0.68}) {$v_{\i}$};
+      \draw[lec12oe] (v1)--(v7); \draw[lec12oe] (v2)--(v7); \draw[lec12oe] (v3)--(v8);
+      \draw[lec12oe] (v4)--(v8); \draw[lec12oe] (v6)--(v8); \draw[lec12oe] (v5)--(v9);
+      \draw[lec12ge] (v1)--(v11); \draw[lec12ge] (v2)--(v10); \draw[lec12ge] (v3)--(v11);
+      \draw[lec12ge] (v4)--(v12); \draw[lec12ge] (v5)--(v11); \draw[lec12ge] (v6)--(v12);
+      \node[lec12cap] at (1.1,-0.85) {(b) relational entity graph};
+    \end{scope}
+    % (c) computation graphs for t = 1, 3, 5
+    \begin{scope}[xshift=4.6cm]
+      \node[font=\small] at (0,3.75) {$t=1$};
+      \node[lec12cu] (a11) at (0,3.2) {$v_{11}$};
+      \node[lec12tr] (a1) at (0,1.9) {$v_1$};
+      \node[lec12pr] (a7) at (0,0.6) {$v_7$};
+      \draw[dedge] (a11)--(a1); \draw[dedge] (a1)--(a7);
+      \node[font=\small] at (2.0,3.75) {$t=3$};
+      \node[lec12cu] (b11) at (2.0,3.2) {$v_{11}$};
+      \node[lec12tr] (b3) at (1.6,1.9) {$v_3$}; \node[lec12tr] (b1) at (2.4,1.9) {$v_1$};
+      \node[lec12pr] (b8) at (1.6,0.6) {$v_8$}; \node[lec12pr] (b7) at (2.4,0.6) {$v_7$};
+      \draw[dedge] (b11)--(b3); \draw[dedge] (b11)--(b1);
+      \draw[dedge] (b3)--(b8); \draw[dedge] (b1)--(b7);
+      \node[font=\small] at (4.6,3.75) {$t=5$};
+      \node[lec12cu] (c11) at (4.6,3.2) {$v_{11}$};
+      \node[lec12tr] (c1) at (3.8,1.9) {$v_1$}; \node[lec12tr] (c3) at (4.6,1.9) {$v_3$};
+      \node[lec12tr] (c5) at (5.4,1.9) {$v_5$};
+      \node[lec12pr] (c7) at (3.8,0.6) {$v_7$}; \node[lec12pr] (c8) at (4.6,0.6) {$v_8$};
+      \node[lec12pr] (c9) at (5.4,0.6) {$v_9$};
+      \draw[dedge] (c11)--(c1); \draw[dedge] (c11)--(c3); \draw[dedge] (c11)--(c5);
+      \draw[dedge] (c1)--(c7); \draw[dedge] (c3)--(c8); \draw[dedge] (c5)--(c9);
+      \node[lec12cap, anchor=west] at (6.0,3.2) {customer};
+      \node[lec12cap, anchor=west] at (6.0,1.9) {transaction};
+      \node[lec12cap, anchor=west] at (6.0,0.6) {product};
+      \node[lec12cap] at (2.7,-0.85) {(c) computation graphs for different time $t$};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{GNNs on temporal graphs: transactions $v_1$--$v_6$ (blue) link products
+  $v_7$--$v_9$ (orange) and customers $v_{10}$--$v_{12}$ (green); the computation graph of
+  $v_{11}$ grows with $t$ (slide~52).}
+  \label{fig:lec12-temporal}
+\end{figure}
+
+\subsection{GNN vs feature engineering}\label{sec:lec12-vsfe}
+\slides{53}
+
+\begin{itemize}
+  \item \textbf{GNN-based features:} embeddings learned along user $\to$ sales $\to$
+    products, \textbf{vs.}
+  \item \textbf{Hand-engineered features:}
+    \begin{itemize}
+      \item \texttt{SUM(TRANSACTIONS.Price)} over (-30, 0) days;
+      \item \texttt{AVG(TRANSACTIONS.Price)} over (-30, 0) days; \dots
+    \end{itemize}
+\end{itemize}
+\begin{keyidea}
+  GNN aggregation is \textbf{learnable version of hand-crafted features}! GNNs give better
+  performance by learning optimal features.
+\end{keyidea}
+
+\subsection{SQL joins vs graph edges}\label{sec:lec12-joins}
+\slides{54--56}
+
+\begin{itemize}
+  \item \textbf{Definitions:} a table $R$ is a set of entities $R=\{r_1,\dots,r_n\}$;
+    each entity is a tuple $r_i=(r_{i1},r_{i2},\dots,r_{in})$; given two tables $R,S$, a
+    \textbf{join} operation is a \textbf{subset} of a Cartesian product (formula left blank
+    on slide~54); aggregation will specify which rows are kept.
+  \item \textbf{Example tables:} Employee (LastName, DepartmentID) = (Rafferty, 31),
+    (Jones, 33), (Heisenberg, 33), (Robinson, 34), (Smith, 34), (Williams, NULL);
+    Department (DepartmentID, DepartmentName) = (31, Sales), (33, Engineering),
+    (34, Clerical), (35, Marketing).
+  \item \textbf{Ex.\,1: Cross Join:} \texttt{SELECT * FROM employee INNER JOIN department
+    ON 1=1;} returns all 24 (employee, department) pairs (Williams with DepartmentID
+    NULL included).
+  \item \textbf{Ex.\,2: Inner Join:}
+\end{itemize}
+\begin{equation}\label{eq:lec12-join}
+  R\bowtie S\defeq\{r\cup s\mid r\in R\wedge s\in S\wedge \mathrm{Fun}(r,s)\},
+  \qquad \mathrm{Fun}(r,s):\ r.pkey=s.fkey
+\end{equation}
+\begin{itemize}
+  \item[] {\small\ttfamily SELECT employee.LastName, employee.DepartmentID,\\
+    \hspace*{1em}department.DepartmentName FROM employee INNER JOIN department ON\\
+    \hspace*{1em}employee.DepartmentID = department.DepartmentID;}\\
+    $\to$ (Robinson, 34, Clerical), (Jones, 33, Engineering), (Smith, 34, Clerical),
+    (Heisenberg, 33, Engineering), (Rafferty, 31, Sales); Williams and Marketing drop out.
+  \item \textbf{Connection between SQL joins and graph edges:} viewing $R\times S$ as a
+    matrix, the kept entries are
+\end{itemize}
+\begin{equation}\label{eq:lec12-adj}
+  a_{ij}=\begin{cases}1, & \text{if } r_i.pkey=s_j.fkey\\ 0, & \text{otherwise}\end{cases}
+\end{equation}
+\begin{itemize}
+  \item[] $\Rightarrow$ \textbf{these are exactly the pkey-fkey edges!}
+  \item \textbf{GNNs perform a JOIN+AGG} (slide~56). Input: users 1, 2, 3 and sales
+    (USER\_ID, VALUE, DATE) = (1, 20, 01-01), (1, 80, 01-02), (2, 15, 01-01), (3, 20,
+    01-02), (3, 80, 01-03); each sale is linked to its user.
+  \item \textbf{GNN can learn:} \texttt{SELECT SUM(VALUE) FROM SALES WHERE DATE > 01-01
+    GROUP BY USER\_ID} $\to$ (USER\_ID, SUM(VALUE)) = (1, 80), (2, 0), (3, 100), via
+\end{itemize}
+\begin{equation}\label{eq:lec12-joinagg}
+  \bigoplus_{w\in\mathcal{N}(v)}\vt(t_w)\cdot\vx_w
+\end{equation}
+\begin{itemize}
+  \item[] $\bigoplus$: \textbf{learnable aggregation}; $\vt(t_w)$: \textbf{temporal
+    embedding}; $\vx_w$: \textbf{fact representation}.
+\end{itemize}
+
+\subsection{Benefits of GNNs}\label{sec:lec12-benefits}
+\slides{57--61}
+
+Examples on the schema Users, Sessions, Sales, Products, Views:
+\begin{itemize}
+  \item \textbf{GNNs learn how to aggregate information:}
+    \begin{itemize}
+      \item they can discard neighboring node information that is irrelevant for the
+        given downstream task;
+      \item they can detect fine-grained patterns within local neighborhoods (e.g.,
+        buying behavior over the last year).
+    \end{itemize}
+  \item \textbf{GNNs can exchange information \emph{across} training examples:}
+    \begin{itemize}
+      \item instead of treating examples as isolated, there now exists an
+        inter-dependency \emph{between} entities (e.g., users with similar features, users
+        with similar behavior);
+      \item GNN can \emph{use} these features to enrich an entity's representation (``How
+        is the buying behavior of users that have bought similar products?'' / ``\dots\
+        that have looked at similar products?'').
+    \end{itemize}
+  \item \textbf{Multi-hop reasoning \emph{across} table boundaries} can catch information
+    which is \textbf{hard} to pre-compute \emph{beforehand} (training labels $\to$ Users;
+    ``Which user has bought which product?'', ``How active was the user in the past?'').
+  \item \textbf{First-class temporal support} (\cref{fig:lec12-sampling}):
+    \begin{itemize}
+      \item capture fine-grained relative and seasonal features via \textbf{temporal
+        embeddings};
+      \item avoid \textbf{data leakage} via \textbf{temporal sampling} directly during
+        data loading.
+    \end{itemize}
+  \item \textbf{Full vision described in paper:} Fey, Hu, Huang, Lenssen, Ranjan,
+    Robinson, Ying, You, Leskovec, \emph{Relational Deep Learning: Graph Representation
+    Learning on Relational Tables} (Stanford, Kumo.AI, MPI for Informatics, Yale, UIUC).
+    Available at \texttt{https://relbench.stanford.edu}.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85, transform shape]
+    \node[lec12smp] (f1) at (-1.6,1.6) {}; \node[lec12smp] (f2) at (0.8,1.8) {};
+    \node[lec12smp] (f3) at (-0.3,1.1) {}; \node[lec12smp] (f4) at (-1.5,0.2) {};
+    \node[lec12smp] (f5) at (-0.9,-0.9) {};
+    \node[lec12smp, fill=Purple!35] (tp) at (0,0) {};
+    \node[font=\small\bfseries] at (0.25,-0.55) {T+1};
+    \draw[densely dashed, black!70] (f1)--(f3) (f2)--(f3) (f3)--(tp) (f4)--(tp) (f5)--(tp);
+    \node[lec12smp, fill=Purple!35] (t) at (2.6,0.75) {};
+    \node[font=\small\bfseries] at (2.6,0.2) {T};
+    \draw[densely dashed, thick, black!70] (tp)--(t);
+    \node[lec12smp] (a1) at (4.0,1.4) {}; \node[lec12smp] (a2) at (5.3,1.6) {};
+    \node[lec12smp] (b1) at (4.4,-0.1) {}; \node[lec12smp] (b2) at (5.4,0.6) {};
+    \node[lec12smp] (b3) at (5.5,-0.8) {};
+    \node[font=\small\bfseries] at (4.4,-0.7) {T-1};
+    \draw[thick, Purple!70, -{Stealth[length=1.6mm]}] (a1)--(t);
+    \draw[thick, Purple!70, -{Stealth[length=1.6mm]}] (a2)--(a1);
+    \draw[thick, Purple!70, -{Stealth[length=1.6mm]}] (b1)--(t);
+    \draw[thick, Purple!70, -{Stealth[length=1.6mm]}] (b2)--(b1);
+    \draw[thick, Purple!70, -{Stealth[length=1.6mm]}] (b3)--(b1);
+    \node[font=\small, BrickRed, align=center] at (-3.2,0.4) {Not available\\for sampling};
+    \node[font=\small, BrickRed, align=center] at (7.1,0.4) {Available for\\sampling};
+  \end{tikzpicture}
+  \caption{Temporal sampling for a seed node at time T: neighbors from the past (T-1) can be
+  sampled, the future (T+1) cannot (slide~60).}
+  \label{fig:lec12-sampling}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\section{RelBench}\label{sec:lec12-relbench}
+
+\subsection{Enabling research on RDL}\label{sec:lec12-enabling}
+\slides{63--64}
+
+\begin{itemize}
+  \item \term{RelBench} (Relational Deep Learning Benchmark) is more than just a
+    collection of databases: RelBench Relational Databases $\to$ RelBench Data, Task,
+    Graph Loaders $\to$ Your Relational DL Model (PyG, PyTorch Frame) $\to$ RelBench
+    Evaluator $\to$ RelBench Leaderboard.
+    \begin{itemize}
+      \item automatically download datasets; load database and task tables;
+      \item standardized evaluation protocol: \textbf{prevents temporal leakage from test
+        set};
+      \item framework-agnostic data structures: use your favorite ML stack!
+    \end{itemize}
+  \item \textbf{PyF and PyG integration:} load as a PyG graph; train GNN end-to-end;
+    temporal neighbor sampling; use PyTorch Frame to encode tables.
+\end{itemize}
+
+\subsection{Datasets and tasks}\label{sec:lec12-datasets}
+\slides{65--68}
+
+\begin{itemize}
+  \item \textbf{7 diverse datasets:} E-Commerce -- rel-amazon, rel-avito, rel-hm; Social
+    -- rel-event, rel-stack; Sports -- rel-f1; Medical -- rel-trial.
+  \item \textbf{Rich schemas:} \textbf{3} to \textbf{15} tables; \textbf{74k} to
+    \textbf{41M} rows in a DB; \textbf{15} to \textbf{140} columns in a DB; time span
+    from \textbf{2 weeks} to \textbf{55 years}. Examples: rel-amazon -- review(review\_text,
+    summary, review\_time, rating, verified, customer\_id, product\_id),
+    customer(customer\_id, customer\_name), product(product\_id, brand, title,
+    description, price, category); rel-trial (slide~36).
+  \item \textbf{30 real-world predictive tasks} (\cref{tab:lec12-tasks}).
+  \item \textbf{See website to get started:} \texttt{https://relbench.stanford.edu}
+    (``Open benchmark for machine learning over relational databases''; realistic
+    databases, flexible data loaders, evaluators; beta testing phase).
+\end{itemize}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{RelBench tasks shown on slide~67 (``\dots'' = more tasks).}
+  \label{tab:lec12-tasks}
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    Entity classification & Entity regression & Recommendation\\
+    \midrule
+    rel-amazon: user-churn, item-churn & rel-amazon: user-ltv, item-ltv
+      & rel-amazon: user-item-purchase\\
+    rel-stack: user-badge & rel-avito: ad-ctr & rel-avito: user-ad-visit\\
+    rel-trial: study-outcome & rel-f1: driver-position
+      & rel-stack: user-post-comment,\\
+    \dots & \dots & \quad post-post-related; \dots\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------------
+\section{GNN vs expert data scientist}\label{sec:lec12-expert}
+
+\subsection{Setup}\label{sec:lec12-setup}
+\slides{70--72}
+
+\begin{itemize}
+  \item \textbf{Expert data scientist} (Alejandro): recruited experienced data scientist;
+    5 years in industry (specializing in financial databases); responsible for full model
+    building lifecycle.
+  \item \textbf{Representative RelBench task}: \textbf{Stack Exchange database} (tables postLinks, posts, badges, votes, postHistory, users,
+    comments). \textbf{Q: Will a user be active in the next 6 months?}
+\end{itemize}
+
+\subsection{Expert data scientist workflow}\label{sec:lec12-workflow}
+\slides{73--81}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{Expert data scientist workflow, manual work per stage (slides~73--79).}
+  \label{tab:lec12-workflow}
+  \begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{3.7cm}r>{\raggedright\arraybackslash}X@{}}
+    \toprule
+    Stage & Manual work & Details on the slides\\
+    \midrule
+    Exploratory Data Analysis (EDA) & 4hrs & example observations: activity is seasonal
+      (new posts over time); comments follow power law (dist.\ of num comments per
+      user); negative votes are infrequent (dist.\ of votes by post)\\
+    Feature Ideation & 0.5hr & example features: weeks\_since\_last\_comment,
+      badge\_score, location\_is\_null\\
+    SQL query writing & 5hr & 100s of lines of code (\texttt{create table
+      churn\_feats\_train as \dots}, joining labels with badges on
+      \texttt{labels.timestamp > badges.Date})\\
+    XGBoost hparam sweep & 2hr & \\
+    SHAP (feature importance analysis) & 1hr & \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{Manual work:} EDA $\to$ feature ideation $\to$ SQL query writing $\to$
+    XGBoost hparam sweep $\to$ SHAP, with times in \cref{tab:lec12-workflow}.
+  \item \textbf{SHAP feature importance} (top of the plot: weeks\_since\_last\_comment,
+    badge\_score, last\_q\_weeks\_ago, num\_posts\_commented, last\_a\_weeks\_ago,
+    num\_badges, location\_is\_null, about\_me\_length, \dots). Selected observations:
+    \begin{itemize}
+      \item website ``seniority'' \textbf{predictive} (total number of comments, badge
+        score etc.);
+      \item time since last active / commented \textbf{is predictive};
+      \item completed bio (about me, location etc.) \textbf{is predictive};
+      \item number of positive/negative votes \textbf{not predictive};
+      \item interacting with ``senior'' community members \textbf{not predictive}.
+    \end{itemize}
+  \item \textbf{Final list of features:} 54 features with Label Corr., Label MI, NaN \%
+    (highest label correlation: num\_badges 0.229, num\_questions\_last\_6mo 0.209,
+    badge\_score 0.206; most negative: last\_a\_weeks\_ago $-0.394$,
+    weeks\_since\_last\_comment $-0.392$, last\_q\_weeks\_ago $-0.346$).
+    \textbf{$\sim$12 hours of high-quality expert work.}
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Results}\label{sec:lec12-results}
+
+\subsection{Stack Exchange: will a user be active in the next 6 months?}\label{sec:lec12-stack}
+\slides{83--86}
+
+\begin{itemize}
+  \item \textbf{Naive baseline:} XGBoost (no feature engineering) on the users table (Id,
+    AccountId, DisplayName, Location, WebsiteUrl, AboutMe, CreationDate).
+  \item Test ROCAUC and effort in \cref{tab:lec12-results}. Expert data scientist:
+    \textbf{12 hours manual work, $\sim$682 lines of code, 1hr model training (2 days to
+    model)}; GNN: \textbf{$<$1 hour manual work, 54 lines of code, 1hr model training}
+    (*work measured as the marginal effort to solve a new task).
+  \item Performance comparison (slide~86): AUCROC 0.90 (GNN) vs 0.86 (expert); hours
+    human work 1.00 vs 11.00; lines of code 54.00 vs 682.00; hours model training 1.00 vs
+    1.00. (The chart's 11.00 hours differs from ``$\sim$12 hours'' on slide~81 and ``12
+    hours'' on slides~84--85.)
+\end{itemize}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{GNN vs expert data scientist. Top: Stack Exchange ``will a user be active in
+  the next 6 months?'', Test ROCAUC and effort (slides~83--85); bottom: AUCROC on more
+  RelBench tasks (slide~87).}
+  \label{tab:lec12-results}
+  \begin{tabular}{@{}lccc@{}}
+    \toprule
+    Task & XGBoost (no feature eng.) & Expert Data Scientist & GNN\\
+    \midrule
+    User active in next 6 months & 0.6842 & 0.8643 & \textbf{0.8945}\\
+    \quad manual work & -- & 12 hours & $<$1 hour\\
+    \quad lines of code & -- & $\sim$682 & 54\\
+    \quad model training & -- & 1hr & 1hr\\
+    \midrule
+    stackex-engage (AUCROC) & -- & 86.43 & \textbf{89.50}\\
+    stackex-badges (AUCROC) & -- & 86.14 & \textbf{88.19}\\
+    amazon-churn (AUCROC) & -- & 67.55 & \textbf{70.46}\\
+    amazon-product-churn (AUCROC) & -- & 81.67 & \textbf{82.98}\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{More RelBench tasks}\label{sec:lec12-more}
+\slides{87}
+
+\begin{itemize}
+  \item Performance comparison on stackex-engage, stackex-badges, amazon-churn and
+    amazon-product-churn (\cref{tab:lec12-results}, bottom): \textbf{GNN beats the expert
+    data scientist on all four tasks}.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\bigskip\phantomsection
+\addcontentsline{toc}{section}{Lecture 12 at a glance}
+\begin{summarybox}[Lecture 12 at a glance]
+  \begin{itemize}
+    \item Data is stored in \textbf{relational databases}; classic ML flattens them
+      by manual feature engineering (6-12 months; arbitrary features, limited data,
+      leakage). LLMs: not relational, not sequence modeling, not trained to predict the
+      future, limited context.
+    \item \textbf{RDL:} end-to-end deep learning on relational tables, no feature
+      engineering; predictive tasks become graph representation learning. Inheritor of
+      statistical relational learning; unlike tabular ML, uses relations between tables.
+    \item Database $\calT=\{T_1,\dots,T_n\}$, links $\mathcal{L}\subseteq\calT\times\calT$;
+      \textbf{schema graph} = high-level structure; \textbf{relational entity graph}:
+      nodes $\calV=\bigcup_{T\in\calT}T$ (all rows), edges = matching primary/foreign
+      keys; entities have features.
+    \item \textbf{Task} = entity + label + time, given by a \textbf{training table} (entity
+      ID, time, labels); only use information up to the time of label.
+    \item \textbf{Relational GNN:} time-dependent computation graphs, message+aggregation
+      and sampling; aggregation = learnable hand-crafted features; inner join
+      $a_{ij}=1$ iff $r_i.pkey=s_j.fkey$ = pkey-fkey edges; JOIN+AGG
+      $\bigoplus_{w\in\mathcal{N}(v)}\vt(t_w)\cdot\vx_w$.
+    \item \textbf{RelBench:} 7 datasets, 30 tasks, loaders + evaluator without temporal
+      leakage; PyG + PyTorch Frame.
+    \item \textbf{GNN vs expert} (Stack Exchange): 0.8945 vs 0.8643 (XGBoost baseline
+      0.6842) with $<$1 h vs 12 h manual work and 54 vs $\sim$682 lines of code; GNN also
+      wins on stackex-engage, stackex-badges, amazon-churn, amazon-product-churn.
+  \end{itemize}
+\end{summarybox}
