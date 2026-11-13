@@ -1,0 +1,697 @@
+\lecture{13}{Advanced Architectures in Relational Deep Learning}{Thursday, November 5, 2026}\label{ch:lec13}
+
+% Local TikZ styles (prefix lec13)
+\tikzset{
+  lec13ent/.style={circle, draw=black!70, thick, fill=Salmon!22, minimum size=4.2mm,
+                   inner sep=0pt},
+  lec13jun/.style={circle, draw=black!70, thick, fill=Periwinkle!55, minimum size=4.2mm,
+                   inner sep=0pt},
+  lec13lbl/.style={font=\scriptsize\sffamily},
+  lec13fk/.style={thick, black!40, -{Stealth[length=1.5mm]}},
+  lec13cu/.style={circle, draw=black!70, thick, fill=ForestGreen!45, minimum size=5mm,
+                  inner sep=0pt, font=\scriptsize},
+  lec13tr/.style={rectangle, rounded corners=1pt, draw=black!70, thick, fill=RoyalBlue!30,
+                  minimum size=4.6mm, inner sep=0pt, font=\scriptsize},
+  lec13pr/.style={rectangle, draw=black!70, thick, fill=Goldenrod!55, minimum size=4.6mm,
+                  inner sep=0pt, font=\scriptsize},
+  lec13lnk/.style={thick, black!35, densely dotted, -{Stealth[length=1.5mm]}},
+  lec13hop/.style={line width=1.6pt, black!35, -{Stealth[length=2.2mm]}},
+  lec13hop2/.style={line width=1.6pt, black!70, -{Stealth[length=2.2mm]}},
+  lec13cap/.style={font=\scriptsize\sffamily, align=center},
+  lec13enc/.style={draw=black!80, fill=black!60, text=white, rounded corners=1.5pt,
+                   font=\tiny\sffamily, minimum width=15mm, minimum height=5mm,
+                   align=center, inner sep=1pt},
+  lec13seed/.style={circle, fill=black!85, minimum size=2.2mm, inner sep=0pt},
+  lec13t1/.style={circle, fill=Brown!80, minimum size=2.2mm, inner sep=0pt},
+  lec13t2/.style={circle, fill=Gray!80, minimum size=2.2mm, inner sep=0pt},
+  lec13up/.style={black!50, -{Stealth[length=1.3mm]}},
+}
+
+\textbf{Outline.} Recap of RDL (databases as graphs, training tables, why not LLMs, RDL
+gains over LLM) $\to$ next-generation architectures (multi-modal, multi-scale databases;
+structural patterns) $\to$ RelGNN: composite message passing along atomic routes $\to$
+RelGT: Relational Graph Transformer (multi-element tokens) $\to$ relational foundation
+model.
+
+% ---------------------------------------------------------------------
+\section{Recap: relational deep learning}\label{sec:lec13-recap}
+
+\subsection{RDL recap}\label{sec:lec13-rdlrecap}
+\slides{3--13}
+
+All as in \cref{ch:lec12}:
+\begin{itemize}
+  \item Slide~4: data stored in relational databases (commerce, finance, social media
+    schemas).
+  \item Slide~5: predictions on relational data (Users--Sales--Products): which
+    products will a user purchase in the next 7 days; will an active user churn in the
+    next 90 days; total sales for each product in the next 30 days.
+  \item Slides~6--7: insight: a database is a graph (schema $\to$ Users--Sales--Products
+    graph).
+  \item Slide~8: just do ML on a graph (node-, link-, graph-level tasks).
+  \item Slide~9: graph ML problem solving pipeline (Relational DB $\to$ Graph Problem
+    $\to$ Graph ML $\to$ Solutions).
+  \item Slide~10: \textbf{training table} (entity ID, time, labels); classification,
+    regression, multi-class.
+  \item Slide~11: RDL pipeline (a) rel.\ tables with training table, (b) entities linked
+    by foreign keys, (c) relational entity graph, (d) GNN.
+  \item Slide~12: connect the training table: training labels with timestamps attached
+    to the graph.
+  \item Slide~13: GNN on the entity graph: a node's neighborhood defines a
+    (time-dependent) computation graph.
+\end{itemize}
+
+\subsection{Why not use an LLM?}\label{sec:lec13-llm}
+\slides{14--18}
+
+\begin{itemize}
+  \item Slides~14--17 as in \cref{ch:lec12}: some have tried (Wydmuch, Borchmann,
+    Grali\'nski, Snowflake AI Research), the serialized prompt, and why not LLMs (not
+    trained on the relational nature of databases; database prediction is \textbf{NOT}
+    sequence modeling; \textbf{NOT} trained to predict the future; context size is
+    limited).
+  \item \textbf{New -- RDL gains over LLM} (slide~18): entity classification on the
+    RelBench test set, ICL Llama 3.2 3B vs RelGNN (\cref{tab:lec13-llm}). RelGNN wins on
+    all tasks except rel-f1. ``Stay tuned for more discussion on LLMs later!''
+\end{itemize}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{Entity classification results (ROC-AUC(\%), higher is better) on RelBench test
+  set; best values in bold (slide~18).}
+  \label{tab:lec13-llm}
+  \begin{tabular}{@{}llccc@{}}
+    \toprule
+    Dataset & Task & ICL Llama 3.2 3B & RelGNN (ours) & Relative Gain\\
+    \midrule
+    \multirow{2}{*}{rel-amazon} & user-churn & 62.55 & \textbf{70.99} & 13\%\\
+      & item-churn & 73.41 & \textbf{82.64} & 13\%\\
+    \multirow{2}{*}{rel-avito} & user-visits & 53.36 & \textbf{66.18} & 24\%\\
+      & user-clicks & 54.07 & \textbf{68.23} & 26\%\\
+    \multirow{2}{*}{rel-event} & user-repeat & 70.11 & \textbf{79.61} & 14\%\\
+      & user-ignore & 68.65 & \textbf{86.18} & 26\%\\
+    \multirow{2}{*}{rel-f1} & driver-dnf & \textbf{80.03} & 75.29 & $-6$\%\\
+      & driver-top3 & \textbf{87.11} & 85.69 & $-2$\%\\
+    rel-hm & user-churn & 63.81 & \textbf{70.93} & 11\%\\
+    \multirow{2}{*}{rel-stack} & user-engagement & 81.23 & \textbf{90.75} & 12\%\\
+      & user-badge & 79.99 & \textbf{88.98} & 11\%\\
+    rel-trial & study-outcome & 59.17 & \textbf{71.24} & 20\%\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------------
+\section{Next-generation architectures for RDL}\label{sec:lec13-nextgen}
+
+\subsection{The need for specialized models}\label{sec:lec13-need}
+\slides{19--22}
+
+\begin{itemize}
+  \item Relational databases: \textbf{multi-modal}, \textbf{multi-scale} information.
+  \item \textbf{Entity level:} text, image, numerical, categorical, timestamp. Schema:
+    Products (ProductID, Description, Image, Size), Transactions (TransactionID,
+    ProductID, \textbf{Timestamp}, CustomerID, Price), Customers (CustomerID, Name);
+    edges ``Bought which'', ``Bought by''.
+  \item \textbf{Database level:} \textbf{relational structure}, \textbf{temporal
+    structure}.
+\end{itemize}
+
+\subsection{Relational DBs structure}\label{sec:lec13-patterns}
+\slides{23}
+
+\begin{itemize}
+  \item \term{Tripartite patterns}: Users -- Sales -- Products (the graph of
+    \cref{ch:lec12}).
+  \item \term{Cycle patterns}: two users who both bought the shirt (\$20) and the shoe
+    (\$80) close a cycle user -- sale -- shirt -- sale -- user -- sale -- shoe -- sale --
+    user.
+  \item \textbf{Structure changes over time!}
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{RelGNN: composite message passing for RDL}\label{sec:lec13-relgnn}
+
+\subsection{Relational entity graph vs heterogeneous graph}\label{sec:lec13-junction}
+\slides{24--28}
+
+\begin{itemize}
+  \item Same schema (Products, Transactions, Customers; ``Bought which'', ``Bought by'')
+    as two graphs:
+    \begin{itemize}
+      \item \textbf{standard heterogeneous graph}: customer $\xrightarrow{\text{purchase}}$
+        product;
+      \item \textbf{relational entity graph}: customer $\leftarrow$ transaction $\to$
+        product.
+    \end{itemize}
+  \item \textbf{Observation:} edges in relational entity graphs are \textbf{defined by
+    primary--foreign key links} that merely record table connectivity \textbf{without
+    semantics}.
+  \item \term{Junction tables} are introduced, decomposing each \textbf{many-to-many
+    association} into \textbf{a pair of one-to-many links}
+    (\cref{fig:lec13-junction}).
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85, transform shape]
+    \begin{scope}
+      \node[lec13cu, label={[lec13lbl]left:1}] (c1) at (0,1.2) {};
+      \node[lec13cu, label={[lec13lbl]left:2}] (c2) at (0,0) {};
+      \node[lec13pr, label={[lec13lbl]right:1}] (p1) at (2.2,1.2) {};
+      \node[lec13pr, label={[lec13lbl]right:2}] (p2) at (2.2,0) {};
+      \draw[thick, Lavender!80!black] (c1)--(p1) (c1)--(p2) (c2)--(p1);
+      \node[lec13cap] at (0,-0.6) {customer};
+      \node[lec13cap] at (2.2,-0.6) {product};
+      \node[lec13cap] at (1.1,-1.2) {(a) many-to-many association};
+    \end{scope}
+    \begin{scope}[xshift=4.6cm]
+      \node[lec13cu, label={[lec13lbl]left:1}] (d1) at (0,1.2) {};
+      \node[lec13cu, label={[lec13lbl]left:2}] (d2) at (0,0) {};
+      \node[lec13tr, label={[lec13lbl]above:1}] (t1) at (1.9,1.9) {};
+      \node[lec13tr, label={[lec13lbl]above:2}] (t2) at (1.9,0.9) {};
+      \node[lec13tr, label={[lec13lbl]above:3}] (t3) at (1.9,-0.1) {};
+      \node[lec13pr, label={[lec13lbl]right:1}] (q1) at (3.8,1.2) {};
+      \node[lec13pr, label={[lec13lbl]right:2}] (q2) at (3.8,0.3) {};
+      \draw[lec13lnk] (t1)--(d1); \draw[lec13lnk] (t2)--(d1); \draw[lec13lnk] (t3)--(d2);
+      \draw[lec13lnk] (t1)--(q2); \draw[lec13lnk] (t2)--(q2); \draw[lec13lnk] (t3)--(q1);
+      \node[lec13cap] at (0,-0.6) {customer};
+      \node[lec13cap] at (1.9,-0.6) {transaction};
+      \node[lec13cap] at (3.8,-0.6) {product};
+      \node[lec13cap] at (1.9,-1.2) {(b) junction table: pair of one-to-many links};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{A many-to-many customer--product association becomes, in the relational
+  entity graph, a transaction junction table with two one-to-many links (slide~28).}
+  \label{fig:lec13-junction}
+\end{figure}
+
+\subsection{Junction tables in schema graphs}\label{sec:lec13-schema}
+\slides{29--33}
+
+\begin{itemize}
+  \item Slides~29--30: RelBench and its 7 diverse datasets, as in \cref{ch:lec12}.
+  \item \textbf{rel-amazon}: customer -- \emph{review} -- product; \textbf{rel-hm}:
+    customer -- \emph{transactions} -- article (purple = junction table).
+  \item \textbf{rel-F1}: junction tables constructor\_standings, constructor\_results,
+    standings, results, qualifying link constructors, races, drivers; circuits $\to$
+    races (\cref{fig:lec13-f1}a).
+  \item Two junction patterns:
+    \begin{itemize}
+      \item \term{bridge structure}: standings $\to$ races, drivers;
+      \item \term{hub structure}: results $\to$ races, constructors, drivers.
+    \end{itemize}
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85, transform shape]
+    \begin{scope}
+      \node[lec13jun, label={[lec13lbl]above:constructor\_standings}] (cs) at (0.4,3.0) {};
+      \node[lec13jun, label={[lec13lbl]above:constructor\_results}] (cr) at (3.2,3.0) {};
+      \node[lec13jun, label={[lec13lbl]above:standings}] (st) at (5.8,3.0) {};
+      \node[lec13ent, label={[lec13lbl]left:constructors}] (co) at (0,1.5) {};
+      \node[lec13ent, label={[lec13lbl]right:races}] (ra) at (3.2,1.5) {};
+      \node[lec13ent, label={[lec13lbl]right:drivers}] (dr) at (6.4,1.5) {};
+      \node[lec13jun, label={[lec13lbl]below:results}] (re) at (1.8,0) {};
+      \node[lec13ent, label={[lec13lbl]below:circuits}] (ci) at (3.2,0) {};
+      \node[lec13jun, label={[lec13lbl]below:qualifying}] (qu) at (4.6,0) {};
+      \foreach \a/\b in {cs/co, cs/ra, cr/co, cr/ra, st/ra, st/dr, re/co, re/ra, re/dr,
+                         ci/ra, qu/co, qu/ra, qu/dr}
+        \draw[lec13fk] (\a) -- (\b);
+      \node[lec13cap] at (3.2,-1.05) {(a) primary--foreign key relation of rel-f1};
+    \end{scope}
+    \begin{scope}[xshift=9.4cm, yshift=0.2cm]
+      \node[lec13ent, label={[lec13lbl]below:circuits}] (a1) at (0,2.9) {};
+      \node[lec13ent, label={[lec13lbl]below:races}] (a2) at (2.4,2.9) {};
+      \draw[lec13fk] (a1) -- (a2);
+      \node[lec13ent, label={[lec13lbl]below:races}] (b1) at (0,1.6) {};
+      \node[lec13jun, label={[lec13lbl]below:standings}] (b2) at (1.2,1.6) {};
+      \node[lec13ent, label={[lec13lbl]below:drivers}] (b3) at (2.4,1.6) {};
+      \draw[lec13fk] (b2) -- (b1); \draw[lec13fk] (b2) -- (b3);
+      \node[lec13ent, label={[lec13lbl]below:races}] (c1) at (0,0.3) {};
+      \node[lec13jun, label={[lec13lbl]below:results}] (c2) at (1.2,0.3) {};
+      \node[lec13ent, label={[lec13lbl]below:drivers}] (c3) at (2.4,0.3) {};
+      \draw[lec13fk] (c2) -- (c1); \draw[lec13fk] (c2) -- (c3);
+      \node[lec13cap] at (1.2,-1.25) {(b) example atomic routes};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{rel-F1 schema graph (pink: entity tables, purple: junction tables) and example
+  atomic routes (slides~32--33, 35).}
+  \label{fig:lec13-f1}
+\end{figure}
+
+\subsection{Limitation of message passing on the entity graph}\label{sec:lec13-limit}
+\slides{34}
+
+\begin{itemize}
+  \item \textbf{(1) \emph{Imbalance}:} \textbf{junction nodes} are 1-hop neighbors and
+    \textbf{more informative nodes} become 2-hop (customer $\leftarrow$ transaction (1st
+    hop neighbor) $\leftarrow$ product (2nd hop neighbor)).
+  \item \textbf{(2) \emph{Redundancy}:} information from the source node is passed to the
+    junction node in the first hop and routed back to itself in the second,
+    \textbf{aggregated with the junction and 2-hop node information} (customer $\to$
+    transaction in the 1st hop, transaction $\to$ customer in the 2nd hop).
+\end{itemize}
+
+\subsection{RelGNN: atomic routes}\label{sec:lec13-atomic}
+\slides{35}
+
+\begin{definition}[Atomic route, informal]\label{def:lec13-atomic}
+  An \term{atomic route} is a \textbf{simple path between pink node-types} (non-junction
+  tables) in the primary--foreign key graph.
+\end{definition}
+\begin{itemize}
+  \item Atomic routes can be \textbf{derived automatically} without manual intervention
+    or domain-expert knowledge.
+  \item Examples on rel-f1 (\cref{fig:lec13-f1}b): circuits $\to$ races; races
+    $\leftarrow$ standings $\to$ drivers; races $\leftarrow$ results $\to$ drivers.
+  \item Chen, Kanatsoulis, Leskovec, \emph{RelGNN: Composite Message Passing for
+    Relational Deep Learning}, ICML 2025.
+\end{itemize}
+
+\subsection{RelGNN: composite message passing}\label{sec:lec13-cmp}
+\slides{36}
+
+\begin{definition}[Composite message passing]\label{def:lec13-cmp}
+  \term{Composite message passing} aggregates messages along atomic routes in a
+  \textbf{single step}:
+  \begin{equation}\label{eq:lec13-cmp}
+    \vm^{(l+1)}_{(\mathtt{dst},\mathtt{mid},\mathtt{src})}
+    =\mathrm{AGGR}\Big(\vh^{(l)}_{\mathtt{dst}},\
+      \{\!\{\mathrm{FUSE}(\vh^{(l)}_{\mathtt{mid}},\vh^{(l)}_{\mathtt{src}})\}\!\}\Big)
+  \end{equation}
+\end{definition}
+\textbf{Instantiation example} ($\vh^{(l)}_{\mathtt{fuse}}$ = FUSE output):
+\begin{align}
+  \mathrm{FUSE}(\vh^{(l)}_{\mathtt{mid}},\vh^{(l)}_{\mathtt{src}})
+    &=\mW_1\vh^{(l)}_{\mathtt{mid}}+\mW_2\vh^{(l)}_{\mathtt{src}}
+    \label{eq:lec13-fuse}\\
+  \mathrm{AGGR}(\vh^{(l)}_{\mathtt{dst}},\{\!\{\vh^{(l)}_{\mathtt{fuse}}\}\!\})
+    &=\mW_{\mathrm{proj}}\vh^{(l)}_{\mathtt{dst}}
+      +\sum_{\mathtt{fuse}\in\mathcal{N}(\mathtt{dst})}
+       \alpha_{\mathtt{dst},\mathtt{fuse}}\mW_V\vh^{(l)}_{\mathtt{fuse}}
+    \label{eq:lec13-aggr}
+\end{align}
+\begin{itemize}
+  \item \textbf{Standard} vs \textbf{composite message passing} in
+    \cref{fig:lec13-cmp}: transaction and product are FUSEd and reach the customer in a
+    single hop.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85, transform shape]
+    \begin{scope}
+      \node[lec13cu] (c) at (0,0) {};
+      \node[lec13tr] (t) at (2.2,0) {};
+      \node[lec13pr] (p) at (4.4,0) {};
+      \draw[lec13hop] (0.4,0.25) -- node[above, lec13lbl] {1st hop} (1.8,0.25);
+      \draw[lec13hop2] (1.8,-0.25) -- node[below, lec13lbl] {2nd hop} (0.4,-0.25);
+      \draw[lec13hop] (4.0,0) -- node[above, lec13lbl] {1st hop} (2.6,0);
+      \node[lec13cap] at (0,-0.9) {customer};
+      \node[lec13cap] at (2.2,-0.9) {transaction};
+      \node[lec13cap] at (4.4,-0.9) {product};
+      \node[lec13cap] at (2.2,-1.5) {(a) standard message passing};
+    \end{scope}
+    \begin{scope}[xshift=6.6cm]
+      \node[lec13cu] (c) at (0,0) {};
+      \node[lec13tr] (t) at (2.3,0) {};
+      \node[lec13pr] (p) at (3.9,0) {};
+      \draw[thick, rounded corners=2pt, black!45] (1.7,-0.45) rectangle (4.5,0.75);
+      \node[lec13lbl, font=\scriptsize\sffamily\bfseries] at (3.1,0.5) {FUSE};
+      \draw[lec13hop] (1.6,0) -- node[above, lec13lbl] {single hop} (0.4,0);
+      \node[lec13cap] at (0,-0.9) {customer};
+      \node[lec13cap] at (2.3,-0.9) {transaction};
+      \node[lec13cap] at (3.9,-0.9) {product};
+      \node[lec13cap] at (2.2,-1.5) {(b) composite message passing};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{Standard message passing on customer--transaction--product (imbalance and
+  redundancy, slide~34) vs composite message passing along the atomic route
+  (slide~36).}
+  \label{fig:lec13-cmp}
+\end{figure}
+
+\subsection{RelGNN results}\label{sec:lec13-relgnn-res}
+\slides{37}
+
+Hetero-GNN vs RelGNN (bar heights read off the plots, approximate):
+\begin{itemize}
+  \item \textbf{rel-F1} -- predict if the driver will qualify in the top-3 for a race in
+    the next 1 month; ROC-AUC(\%) $\approx75$ vs $\approx86$: \textbf{13\% improvement}.
+  \item \textbf{rel-trial} -- predict the success rate of a trial site in the next 1
+    year; MAE $\approx0.40$ vs $\approx0.30$: \textbf{25\% improvement}.
+  \item \textbf{rel-amazon} -- predict the list of distinct items each customer will
+    purchase and give a detailed review in the next 3 months; MAP(\%) $\approx0.47$ vs
+    $\approx0.52$: \textbf{11\% improvement}.
+\end{itemize}
+\begin{keyidea}
+  RelGNN achieves \textbf{SOTA performance} on the vast majority of tasks from RelBench,
+  with improvements of \textbf{up to 25\%}.
+\end{keyidea}
+
+% ---------------------------------------------------------------------
+\section{RelGT: Relational Graph Transformer}\label{sec:lec13-relgt}
+
+\subsection{Recap: graph transformers}\label{sec:lec13-gtrecap}
+\slides{38--44}
+
+Header citation: You, Ying, Leskovec, \emph{Design Space of Graph Neural Networks},
+NeurIPS 2020 (\cref{ch:lec04}). Content as in \cref{ch:lec08}:
+\begin{itemize}
+  \item Slides~39--40: key components of a Transformer: (1) tokenizing, (2) positional
+    encoding, (3) self-attention. Key question: what should these be for a graph input?
+  \item Slides~41--43: a graph Transformer must take (1) node features, (2) adjacency
+    information, (3) edge features; many ways, different ``matchings'': node features
+    $\leftrightarrow$ tokenizing, adjacency $\leftrightarrow$ positional encoding, edge
+    features $\leftrightarrow$ self-attention.
+  \item Slide~44: PEARL + Transformer in practice: sample node ids $\to$ GNN on each
+    sample set $\to$ empirical expectation $\to$ concatenate with node features $\mX$
+    $\to$ main GNN/Transformer $\to$ train PEARL + prediction model jointly.
+\end{itemize}
+
+\subsection{Observation: what a token represents}\label{sec:lec13-tokens}
+\slides{45--48}
+
+\begin{itemize}
+  \item \textbf{(Text) Transformers:} an input token is represented with \textbf{2
+    elements}: token id (\emph{feature}), position (\emph{structure}) -- input embedding
+    + positional encoding.
+  \item \textbf{Graph Transformers:} an input token is represented with \textbf{2
+    elements}: node feature (\emph{feature}), graph positional encoding
+    (\emph{structure}) (graph transformer layer, $\times H$ heads, $\times L$ layers).
+    \begin{itemize}
+      \item Most GTs are designed for \textbf{homogeneous, static graphs};
+      \item for additional RDL complexity such as \textbf{heterogeneity} and
+        \textbf{temporality}, this design needs to be improved.
+    \end{itemize}
+  \item \textbf{Graph Transformer inputs for RDL} (slide~48): (1) node features
+    $\leftrightarrow$ tokenizing, (2) adjacency information $\leftrightarrow$ positional
+    encoding; (3) edge features is struck out and replaced by \textbf{(3) node types}
+    and \textbf{(4) timestamp}.
+\end{itemize}
+
+\subsection{Relational Graph Transformer: overview and challenges}\label{sec:lec13-relgt-ov}
+\slides{49--53}
+
+\begin{itemize}
+  \item \textbf{Pipeline} (slide~49): relational entity graph $\to$ \textbf{tokens}
+    (seed node + local context) $\to$ \textbf{transformer network} ($\times L$ layers;
+    the seed node attends to \textbf{local tokens} and to \textbf{global centroids})
+    $\to$ prediction (downstream layers).
+  \item In the \term{Relational Graph Transformer} we use \textbf{multiple elements to
+    represent the graph structure}: node feature, $\langle$multiple information
+    elements$\rangle$ (= structure).
+  \item \textbf{Limitations of existing PEs for RDL:} designed for homogeneous graphs; no
+    temporal dynamics; computational overhead; graph changes over time.
+  \item \textbf{Unique properties of relational graphs:} the relational entity graph is
+    \textbf{large-scale}, \textbf{heterogeneous}, \textbf{temporal}.
+    \begin{itemize}
+      \item add a \textbf{categorical encoding} to capture the heterogeneity;
+      \item add a \textbf{time encoding} to capture the temporal structure.
+    \end{itemize}
+  \item \textbf{How to encode structure.} Challenge: the relational entity graph is
+    large-scale. Solution: \textbf{sample a subgraph around the seed node}.
+  \item \term{Training (seed) nodes} correspond to the node-types with respect to which
+    tasks are defined; we sample a \textbf{context (subgraph)} around each seed node.
+\end{itemize}
+
+\subsection{Token preparation (sampling stage)}\label{sec:lec13-sampling}
+\slides{54--56}
+
+\begin{itemize}
+  \item For each training node, a \textbf{fixed set of $K$ tokens} from the local
+    neighborhood (e.g., up to 2 hops) is selected through a \textbf{temporal-aware
+    sampling} $\Rightarrow$ relational entity graph $\xrightarrow{\text{tokenization}}$
+    $B\times K$ tokens for $B$ training nodes.
+  \item Structure is encoded with a \textbf{GNN positional encoding} for each node in the
+    context + \textbf{hop distance from seed node}.
+  \item Each node in the $K$ set is represented by a \textbf{5-tuple}:
+    \textbf{(node feature, node type, hop distance, time, GNN PE)}.
+  \item Slide~56: seed nodes $\to$ local tokens (one row of tokens per seed node).
+\end{itemize}
+
+\subsection{Token feature encoders}\label{sec:lec13-encoders}
+\slides{57--59}
+
+\begin{itemize}
+  \item Each element of the 5-tuple is passed to a \textbf{feature encoder} and the
+    combination becomes the token features for the Transformer network
+    (\cref{fig:lec13-enc}):
+    \begin{itemize}
+      \item node feature $\to$ Torch Frame Encoder; node type $\to$ nn Embedding; hop
+        distance $\to$ nn Embedding; time $\to$ Time Encoder; subgraph $\to$ GNN
+        Encoder;
+      \item the element-wise encoder outputs are combined ($\oplus$) $\to$ tokens fed to
+        the Transformer.
+    \end{itemize}
+  \item Slide~59: the \textbf{subgraph} input of the GNN Encoder is the sampled local
+    subgraph around the seed node.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.85, transform shape]
+    % seed nodes and local tokens
+    \foreach \y in {0,-0.38,-0.76} \node[lec13seed] at (-1.3,\y) {};
+    \node[lec13cap, anchor=east] at (-1.55,-0.38) {seed nodes};
+    \draw[-{Stealth[length=1.5mm]}, Magenta] (-0.95,-0.38) -- (-0.25,-0.38);
+    \node[lec13seed] (s0) at (0,0) {};
+    \node[lec13seed] at (0,-0.38) {}; \node[lec13seed] at (0,-0.76) {};
+    \node[lec13t1] at (0.35,0) {}; \node[lec13t2] at (0.7,0) {};
+    \node[font=\tiny] at (1.1,0) {$\cdots$};
+    \node[lec13t1] at (1.5,0) {}; \node[lec13t2] at (1.85,0) {}; \node[lec13t2] at (2.2,0) {};
+    \node[lec13cap, anchor=west] at (0.6,-0.45) {local tokens};
+    % element-wise encoders
+    \draw[thick, rounded corners=4pt, black!60] (-0.9,0.45) rectangle (9.3,2.75);
+    \foreach \i/\inp/\enc in {0/node feature/Torch Frame\\Encoder,
+                              1/node type/nn Embedding,
+                              2/hop distance/nn Embedding,
+                              3/time/Time Encoder,
+                              4/subgraph/GNN Encoder} {
+      \node[lec13lbl] (in\i) at ({0.05+2.05*\i},0.8) {\inp};
+      \node[lec13enc] (e\i) at ({0.05+2.05*\i},1.65) {\enc};
+      \draw[lec13up] (in\i) -- (e\i);
+      \draw[lec13up] (e\i) -- ({0.05+2.05*\i},2.45);
+    }
+    \draw[lec13up] (s0) -- (in0);
+    \node[lec13cap, anchor=east, align=right] at (-1.0,1.65) {element-wise\\encoders};
+    \node[circle, draw, thick, inner sep=0pt, minimum size=3mm] (sum) at (4.15,3.15) {};
+    \draw (sum.north) -- (sum.south) (sum.west) -- (sum.east);
+    \draw[lec13up] (4.15,2.75) -- (sum);
+    % output tokens
+    \node[lec13seed] (o0) at (3.1,3.75) {};
+    \node[lec13t1] at (3.45,3.75) {}; \node[lec13t2] at (3.8,3.75) {};
+    \node[font=\tiny] at (4.2,3.75) {$\cdots$};
+    \node[lec13t1] at (4.6,3.75) {}; \node[lec13t2] at (4.95,3.75) {}; \node[lec13t2] at (5.3,3.75) {};
+    \draw[lec13up] (sum) -- (4.15,3.6);
+    \draw[-{Stealth[length=1.5mm]}, Magenta] (5.6,3.75) -- (6.3,3.75)
+      node[right, lec13cap, text=black] {tokens fed to Transformer};
+  \end{tikzpicture}
+  \caption{RelGT token feature encoders: each element of the 5-tuple goes through its own
+  encoder and the outputs are combined into the token fed to the Transformer
+  (slides~57--59).}
+  \label{fig:lec13-enc}
+\end{figure}
+
+\subsection{Ablation studies and results}\label{sec:lec13-relgt-res}
+\slides{60--61}
+
+\begin{itemize}
+  \item \textbf{Ablation} (\cref{tab:lec13-ablation}): relative drop (\%) in performance
+    in RelGT after removing a model component; negative scores suggest the component is
+    critical in RelGT, and vice-versa.
+\end{itemize}
+\begin{keyidea}[Takeaway, slide 60]
+  Contribution of the \textbf{multi-element tokenization strategy} to capture arbitrary
+  structure in relational data.
+\end{keyidea}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{Relative drop (\%) in performance in RelGT after removing a model component
+  (slide~60; full results in the paper's Table~7).}
+  \label{tab:lec13-ablation}
+  \begin{tabular}{@{}llrrrrr@{}}
+    \toprule
+    Dataset & Task & No Global & No GNN & No Node & No Hop & No Relative\\
+     & & Module & PE & Type & Distance & Time\\
+    \midrule
+    rel-avito & ad-ctr & $-6.00$ & $-1.14$ & $-7.14$ & $-3.43$ & $-9.14$\\
+    rel-avito & user-clicks & 7.79 & $-15.19$ & 4.96 & 5.72 & 8.32\\
+    rel-avito & user-visits & $-0.32$ & $-2.35$ & $-0.08$ & 0.42 & $-0.72$\\
+    rel-event & user-ignore & $-1.28$ & 0.15 & $-0.09$ & 0.69 & $-0.06$\\
+    rel-trial & study-outcome & $-2.08$ & $-1.66$ & 3.80 & $-0.37$ & 2.54\\
+    rel-trial & site-success & $-19.08$ & $-9.23$ & $-2.94$ & $-21.56$ & $-0.77$\\
+    rel-amazon & user-churn & $-0.64$ & $-0.78$ & 0.16 & 0.06 & $-2.20$\\
+    rel-hm & item-sales & $-9.33$ & $-17.35$ & $-12.69$ & 0.93 & $-77.24$\\
+    \midrule
+     & \textbf{Average} & $-3.87$ & $-5.95$ & $-1.75$ & $-2.19$ & $-9.91$\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{Results} (\cref{tab:lec13-relgt}): test set results on the entity
+    regression and classification tasks in RelBench. RDL: HeteroGNN baseline; HGT:
+    Heterogeneous GT; PE: Laplacian Positional Encodings; \% Rel.\ Gain = percentage
+    improvement over the RDL baseline.
+\end{itemize}
+\begin{keyidea}[Takeaway, slide 61]
+  Relational Graph Transformers \textbf{improve over GNNs}.
+\end{keyidea}
+
+\begin{table}[tb]
+  \centering\footnotesize
+  \caption{RelGT results on RelBench, best values in bold as on slide~61. Top: (a) MAE for
+  entity regression, lower is better. Bottom: (b) AUC for entity classification, higher
+  is better.}
+  \label{tab:lec13-relgt}
+  \begin{tabular}{@{}llccccr@{}}
+    \toprule
+    Dataset & Task & RDL & HGT & HGT+PE & RelGT (ours) & \% Rel.\ Gain\\
+    \midrule
+    \multicolumn{7}{@{}l}{\emph{(a) MAE for entity regression (lower is better)}}\\
+    rel-f1 & driver-position & 4.022 & 4.1598 & 4.2358 & \textbf{3.9170} & 2.61\\
+    rel-avito & ad-ctr & 0.041 & 0.0441 & 0.0494 & \textbf{0.0345} & 15.85\\
+    rel-event & user-attendance & 0.258 & 0.2635 & 0.2562 & \textbf{0.2502} & 2.79\\
+    \multirow{2}{*}{rel-trial} & study-adverse & 44.473 & 43.3253 & \textbf{42.4622}
+      & 43.9923 & 1.08\\
+      & site-success & 0.400 & 0.4374 & 0.4431 & \textbf{0.3263} & 18.43\\
+    \multirow{2}{*}{rel-amazon} & user-ltv & 14.313 & 15.3804 & 15.9296
+      & \textbf{14.2665} & 0.32\\
+      & item-ltv & 50.053 & 56.1384 & 55.6211 & \textbf{48.9222} & 2.26\\
+    rel-stack & post-votes & \textbf{0.065} & 0.0679 & 0.0680 & \textbf{0.0654} & $-0.62$\\
+    rel-hm & item-sales & 0.056 & 0.0655 & 0.0641 & \textbf{0.0536} & 4.29\\
+    \midrule
+    \multicolumn{7}{@{}l}{\emph{(b) AUC for entity classification (higher is better)}}\\
+    \multirow{2}{*}{rel-f1} & driver-dnf & 0.7262 & 0.7142 & 0.7109 & \textbf{0.7587}
+      & 4.48\\
+      & driver-top3 & 0.7554 & 0.6389 & 0.8340 & \textbf{0.8352} & 10.56\\
+    \multirow{2}{*}{rel-avito} & user-clicks & 0.6590 & 0.6584 & 0.6387
+      & \textbf{0.6830} & 3.64\\
+      & user-visits & 0.6620 & 0.6426 & 0.6507 & \textbf{0.6678} & 0.88\\
+    \multirow{2}{*}{rel-event} & user-repeat & \textbf{0.7689} & 0.6717 & 0.6590
+      & 0.7609 & $-1.04$\\
+      & user-ignore & 0.8162 & \textbf{0.8348} & 0.8161 & 0.8157 & $-0.06$\\
+    rel-trial & study-outcome & 0.6860 & 0.5679 & 0.5691 & \textbf{0.6861} & 0.01\\
+    \multirow{2}{*}{rel-amazon} & user-churn & \textbf{0.7042} & 0.6608 & 0.6589
+      & 0.7039 & $-0.04$\\
+      & item-churn & \textbf{0.8281} & 0.7824 & 0.7840 & 0.8255 & $-0.31$\\
+    \multirow{2}{*}{rel-stack} & user-engagement & 0.9021 & 0.8898 & 0.8852
+      & \textbf{0.9053} & 0.35\\
+      & user-badge & \textbf{0.8986} & 0.8652 & 0.8518 & 0.8632 & $-3.94$\\
+    rel-hm & user-churn & \textbf{0.6988} & 0.6773 & 0.6491 & 0.6927 & $-0.87$\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------------
+\section{Relational foundation model}\label{sec:lec13-rfm}
+
+\subsection{Limitations of previous models}\label{sec:lec13-prev}
+\slides{62--64}
+
+\begin{itemize}
+  \item Previous RDL models (labels attached to the Users--Sales--Products graph):
+    \begin{itemize}
+      \item they are \textbf{schema- and task-specific};
+      \item they do not transfer knowledge from one database to another or one task to
+        another;
+      \item they do not generalize to new databases or tasks.
+    \end{itemize}
+  \item \textbf{Can we do better? Goal:} bring the success of \textbf{foundation models}
+    (LLMs, ViT) to relational data (ViT: patch + position embedding $\to$ Transformer
+    encoder $\to$ MLP head $\to$ class).
+\end{itemize}
+
+\subsection{Relational foundation model and RelGT as its backbone}\label{sec:lec13-kumorfm}
+\slides{65--67}
+
+\begin{itemize}
+  \item \textbf{Key capabilities of Relational Foundation Models (RFMs)} (slide~65):
+    \begin{itemize}
+      \item applied to \textbf{new/unseen databases and schemas} with highly varying
+        structural characteristics: (a) e-commerce (Users, Orders, Likes, Items), (b)
+        finance (Customers, Transactions, Account, Branch), (c) health care (Patient,
+        Record, Visit, Doctor);
+      \item applied to \textbf{any predictive task type}, from one-off assessments
+        (e.g.\ entity-level fraud prediction) to temporal predictive queries (e.g.\
+        temporal recommendation prediction); example queries: ``What will user 123 buy
+        next?'', ``Will user 321 churn soon?'', ``Is transaction 567 fraudulent?'',
+        ``Will clinic 987 have high appointment demand?'', ``Is patient 234 at risk of
+        hospital readmission?'';
+      \item \textbf{generalize to new predictive tasks} and give accurate predictions
+        without any task-specific model tuning;
+      \item support prediction outputs, \textbf{explanations} into the reasoning
+        process, and build trust through extensive quantitative \textbf{evaluation}.
+    \end{itemize}
+  \item \textbf{RelGT as the backbone for RFM} (slide~66; \emph{Introducing KumoRFM: A
+    Foundation Model for In-Context Learning on Relational Data}, Kumo, May 20, 2025):
+    \begin{itemize}
+      \item query in PQL, e.g.\ \texttt{PREDICT COUNT(orders.*, 0, 7) FOR users.user\_id
+        = 0} $\to$ PQL Parser $\to$ PQL Validator;
+      \item from the relational database, a \textbf{backward-looking graph sampler}
+        (input) and a \textbf{forward-looking graph sampler} (output) build the context
+        and the prediction query:
+        \begin{equation}\label{eq:lec13-icl}
+          \text{context: }\big\{\calG^{\le\hat t}[\hat e]\big\}_{\hat t<t,\ \hat e\sim\calG},
+          \ \big\{y^{\hat t}_{\hat e}\big\}_{\hat t<t,\ \hat e\sim\calG};
+          \qquad
+          \text{predict: }\calG^{\le t}[e]\ \to\ ?
+        \end{equation}
+      \item Relational Graph Transformer ($L$ times) $\to$ \textbf{In-Context Learning}
+        (with ``Explain'').
+    \end{itemize}
+\end{itemize}
+\begin{keyidea}
+  \textbf{Relational Graph Transformer} is the backbone for the first Relational
+  Foundation Model with \textbf{zero-shot capabilities powered by ICL}.
+\end{keyidea}
+\begin{itemize}
+  \item \textbf{Time to first prediction} (slide~67) on node-level classification tasks
+    (user-engagement, user-badge, user-churn (amazon), item-churn, driver-dnf,
+    driver-top3, user-churn (hm), study-outcome), Data Scientist vs RDL vs KumoRFM:
+    (a) hours of human labor (in seconds, log-scaled), (b) lines of code (log-scaled).
+    KumoRFM is \textbf{orders of magnitude faster} ($\approx1$ second vs $\approx30$
+    minutes vs $\approx12.3$ hours) and requires \textbf{zero-code} to get to accurate
+    predictions (1 LoC vs $\approx56$ LoC vs $\approx878$ LoC).
+\end{itemize}
+\begin{caution}
+  Slide~67's caption (``respectively'') pairs $\approx$30~min\,/\,$\approx$56~LoC with Data
+  Scientist and $\approx$12.3~h\,/\,$\approx$878~LoC with RDL; the bars show the reverse
+  (Data Scientist bars longest).
+\end{caution}
+
+% ---------------------------------------------------------------------
+\bigskip\phantomsection
+\addcontentsline{toc}{section}{Lecture 13 at a glance}
+\begin{summarybox}[Lecture 13 at a glance]
+  \begin{itemize}
+    \item \textbf{RDL vs LLM:} RelGNN beats ICL Llama 3.2 3B on RelBench entity
+      classification (gains 11--26\%), except rel-f1 ($-6$\%, $-2$\%).
+    \item \textbf{Relational DBs:} multi-modal (text, image, numerical, categorical,
+      timestamp), multi-scale (relational + temporal structure); tripartite and cycle
+      patterns; structure changes over time.
+    \item \textbf{Entity-graph edges} = PK--FK links without semantics; \textbf{junction
+      tables} split many-to-many into two one-to-many links (bridge / hub) $\Rightarrow$
+      \textbf{imbalance} (informative nodes at 2 hops) and \textbf{redundancy} (own
+      information routed back).
+    \item \textbf{RelGNN:} atomic route = simple path between non-junction node types;
+      composite message passing
+      $\vm^{(l+1)}_{(\mathtt{dst},\mathtt{mid},\mathtt{src})}
+      =\mathrm{AGGR}(\vh^{(l)}_{\mathtt{dst}},\{\!\{\mathrm{FUSE}(\vh^{(l)}_{\mathtt{mid}},
+      \vh^{(l)}_{\mathtt{src}})\}\!\})$, FUSE
+      $=\mW_1\vh^{(l)}_{\mathtt{mid}}+\mW_2\vh^{(l)}_{\mathtt{src}}$;
+      SOTA on most RelBench tasks, up to 25\%.
+    \item \textbf{RelGT:} GTs are built for homogeneous static graphs; RelGT samples
+      $K$ tokens per seed node (temporal-aware, e.g.\ up to 2 hops), each a 5-tuple (node
+      feature, node type, hop distance, time, GNN PE) with its own encoder, combined;
+      attention to local tokens + global centroids. Ablation: removing any component
+      lowers performance on average ($-9.91$\% without relative time); improves over
+      GNNs.
+    \item \textbf{RFM:} previous models are schema- and task-specific; KumoRFM uses RelGT
+      as backbone with in-context learning (zero-shot): $\approx1$ s and 1 LoC to first
+      prediction.
+  \end{itemize}
+\end{summarybox}
